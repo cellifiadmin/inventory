@@ -1,0 +1,278 @@
+org: cellifi
+app: inventory
+service: inventory
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'local'}
+  region: us-east-1
+  versionFunctions: false
+  vpc: ${self:custom.inventoryRuntimeByStage.VPC}
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "s3:PutObject"
+            - "s3:GetObject"
+            - "s3:DeleteObject"
+            - "s3:ListBucket"
+            - "s3:HeadObject"
+          Resource:
+            - "arn:aws:s3:::${self:custom.inventoryRuntimeByStage.PRIVATE_BUCKET_NAME}"
+            - "arn:aws:s3:::${self:custom.inventoryRuntimeByStage.PRIVATE_BUCKET_NAME}/*"
+        - Effect: "Allow"
+          Action:
+            - "sqs:SendMessage"
+          Resource:
+            - ${self:custom.inventoryRuntimeByStage.OFFERS_STOCK_SYNC_QUEUE_ARN}
+  environment:
+    OIDC_REALM: ${self:custom.inventoryRuntimeByStage.OIDC_REALM}
+    DATABASE_URL: ${self:custom.inventoryRuntimeByStage.DATABASE_URL}
+    PRIVATE_BUCKET_NAME: ${self:custom.inventoryRuntimeByStage.PRIVATE_BUCKET_NAME}
+    OFFERS_STOCK_SYNC_QUEUE_URL: ${self:custom.inventoryRuntimeByStage.OFFERS_STOCK_SYNC_QUEUE_URL}
+    CACHE_REDIS_URL: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_URL}
+    CACHE_REDIS_KEY_PREFIX: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_KEY_PREFIX}
+    SERVICE_ENCRYPTION_KEY: ${self:custom.inventoryRuntimeByStage.SERVICE_ENCRYPTION_KEY}
+    GOOGLE_MAPS_API_KEY: ${self:custom.inventoryRuntimeByStage.GOOGLE_MAPS_API_KEY}
+    CELLIFI_AWS_REGION: ${self:custom.inventoryRuntimeByStage.CELLIFI_AWS_REGION}
+    S3_ENDPOINT: ${self:custom.inventoryRuntimeByStage.S3_ENDPOINT}
+    OBJECT_STORAGE_PUBLIC_BASE_URL: ${self:custom.inventoryRuntimeByStage.OBJECT_STORAGE_PUBLIC_BASE_URL}
+    AWS_ENDPOINT_URL: ${self:custom.inventoryRuntimeByStage.AWS_ENDPOINT_URL}
+    CELLIFI_AWS_ACCESS_KEY_ID: ${self:custom.inventoryRuntimeByStage.CELLIFI_AWS_ACCESS_KEY_ID}
+    CELLIFI_AWS_SECRET_ACCESS_KEY: ${self:custom.inventoryRuntimeByStage.CELLIFI_AWS_SECRET_ACCESS_KEY}
+    CLOUDFRONT_DOMAIN: ${self:custom.inventoryRuntimeByStage.CLOUDFRONT_DOMAIN}
+    MP_FE_URL: ${self:custom.inventoryRuntimeByStage.MP_FE_URL}
+    AUTH_SHARED_AUTHORIZER_ARN: ${self:custom.inventoryRuntimeByStage.AUTH_SHARED_AUTHORIZER_ARN}
+  httpApi:
+    cors:
+      allowCredentials: true
+      allowedOrigins:
+        - ${self:custom.inventoryRuntimeByStage.MP_FE_URL}
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - Accept
+        - Origin
+        - X-Requested-With
+        - X-CSRF-Token
+        - X-API-Key
+        - X-Auth-Token
+        - Access-Control-Allow-Origin
+        - Access-Control-Allow-Methods
+        - Access-Control-Allow-Headers
+        - Access-Control-Allow-Credentials
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+    authorizers:
+      sharedAuth:
+        type: request
+        functionArn: ${self:custom.inventoryRuntimeByStage.AUTH_SHARED_AUTHORIZER_ARN}
+        enableSimpleResponses: true
+        identitySource: ${self:custom.inventoryRuntimeByStage.SHARED_AUTH_IDENTITY_SOURCE}
+
+package:
+  individually: true
+  patterns:
+    - "!node_modules/.prisma/inventoryClient/libquery_engine-*"
+    - "node_modules/.prisma/inventoryClient/libquery_engine-rhel-openssl-3.0.x.so.node"
+    - "node_modules/.prisma/inventoryClient/schema.prisma"
+    - "node_modules/@prisma/client/**"
+    - "!node_modules/@prisma/engines/**"
+    - "!node_modules/**/*.md"
+    - "!node_modules/**/*.txt"
+    - "prisma/schema.prisma"
+    - "!**/*.map"
+    - "!coverage/**"
+    - "!**/__tests__/**"
+    - "!**/*.test.*"
+    - "!**/*.spec.*"
+    - "!README.md"
+    - "!scripts/**"
+    - "!.serverless/**"
+    - "!.env*"
+
+functions:
+  sharedAuth:
+    handler: src/handlers/http/sharedAuth.handler
+    timeout: 10
+  health:
+    handler: src/handlers/http/health.handler
+    timeout: 10
+    events:
+      - httpApi:
+          path: /health
+          method: get
+  createMediaGrant:
+    handler: src/handlers/mediaGrants/create.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/media-grants
+          method: post
+          authorizer:
+            name: sharedAuth
+  editListing:
+    handler: src/inventory/handlers/items/edit.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}/edit
+          method: get
+          authorizer:
+            name: sharedAuth
+  listingImages:
+    handler: src/inventory/handlers/items/images.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}/images
+          method: get
+          authorizer:
+            name: sharedAuth
+  listingMainImage:
+    handler: src/inventory/handlers/items/mainImage.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}/main-image
+          method: get
+          authorizer:
+            name: sharedAuth
+  listingAttachmentsCdn:
+    handler: src/inventory/handlers/items/attachmentsCdn.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}/attachments/cdn
+          method: get
+          authorizer:
+            name: sharedAuth
+  listingsBatchAttachmentsCdn:
+    handler: src/inventory/handlers/items/batchAttachmentsCdn.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/attachments/cdn
+          method: get
+          authorizer:
+            name: sharedAuth
+  listingMovements:
+    handler: src/inventory/handlers/items/movements.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}/movements
+          method: get
+          authorizer:
+            name: sharedAuth
+  updateListing:
+    handler: src/inventory/handlers/items/update.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}
+          method: put
+          authorizer:
+            name: sharedAuth
+  createInventoryItem:
+    handler: src/inventory/handlers/items/create.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items
+          method: post
+          authorizer:
+            name: sharedAuth
+      - httpApi:
+          path: /inventories
+          method: post
+          authorizer:
+            name: sharedAuth
+  showListing:
+    handler: src/inventory/handlers/items/show.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items/{id}
+          method: get
+          authorizer:
+            name: sharedAuth
+  listListings:
+    handler: src/inventory/handlers/items/list.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/items
+          method: get
+          authorizer:
+            name: sharedAuth
+  listAccountAddresses:
+    handler: src/inventory/handlers/account-addresses/list.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/account-addresses
+          method: get
+          authorizer:
+            name: sharedAuth
+  upsertAccountAddress:
+    handler: src/inventory/handlers/account-addresses/upsert.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/account-addresses/{type}
+          method: put
+          authorizer:
+            name: sharedAuth
+  deleteAccountAddress:
+    handler: src/inventory/handlers/account-addresses/delete.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/account-addresses/{type}
+          method: delete
+          authorizer:
+            name: sharedAuth
+  syncApprovedAddresses:
+    name: ${self:service}-${self:provider.stage}-sync-approved-addresses
+    handler: src/inventory/handlers/account-addresses/provisionApproved.handler
+    timeout: 20
+  resolveInventoryItem:
+    handler: src/inventory/handlers/item-resolutions/create.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/item-resolutions
+          method: post
+          authorizer:
+            name: sharedAuth
+  markInventoryItemAsSold:
+    handler: src/inventory/handlers/mark-as-sold.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventories/{id}/mark-as-sold
+          method: post
+          authorizer:
+            name: sharedAuth
+
+plugins:
+  - serverless-offline
+
+custom:
+  inventoryRuntimeByStage: ${file(./serverless.runtime.${self:provider.stage}.yml)}
+  dotenv:
+    path: .env
+  serverless-offline:
+    httpPort: 3022
+    lambdaPort: 3032
+    noPrependStageInUrl: true
+    hideStackTraces: true
+    noTimeout: true

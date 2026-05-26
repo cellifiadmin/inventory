@@ -1,0 +1,25 @@
+OIDC_REALM: ${ssm:/cellifi/test/inventory/runtime/oidc-realm}
+INVENTORY_RUNTIME_SENSITIVE: ${ssm:/aws/reference/secretsmanager/cellifi/test/inventory/runtime}
+DATABASE_URL: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.database_url}
+PRIVATE_BUCKET_NAME: ${ssm:/cellifi/test/inventory/runtime/private-bucket-name}
+OFFERS_STOCK_SYNC_QUEUE_URL: ${ssm:/cellifi/test/inventory/runtime/offers-stock-sync-queue-url}
+OFFERS_STOCK_SYNC_QUEUE_ARN: ${ssm:/cellifi/test/inventory/runtime/offers-stock-sync-queue-arn}
+CACHE_REDIS_URL: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.cache_redis_url}
+CACHE_REDIS_KEY_PREFIX: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.cache_redis_key_prefix}
+SERVICE_ENCRYPTION_KEY: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.service_encryption_key}
+GOOGLE_MAPS_API_KEY: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.google_maps_api_key}
+CELLIFI_AWS_REGION: ${ssm:/cellifi/test/inventory/runtime/aws-region}
+S3_ENDPOINT: ""
+OBJECT_STORAGE_PUBLIC_BASE_URL: ""
+AWS_ENDPOINT_URL: ""
+CELLIFI_AWS_ACCESS_KEY_ID: ""
+CELLIFI_AWS_SECRET_ACCESS_KEY: ""
+CLOUDFRONT_DOMAIN: ${ssm:/cellifi/test/inventory/runtime/cloudfront-domain}
+MP_FE_URL: ${ssm:/cellifi/test/inventory/runtime/mp-fe-url}
+AUTH_SHARED_AUTHORIZER_ARN: ${ssm:/cellifi/test/inventory/runtime/auth-shared-authorizer-arn}
+SHARED_AUTH_IDENTITY_SOURCE:
+  - $request.header.Cookie
+VPC:
+  securityGroupIds:
+    - ${ssm:/cellifi/test/network/core-lambda-security-group-id}
+  subnetIds: ${ssm:/cellifi/test/network/core-lambda-subnet-ids}

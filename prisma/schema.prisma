@@ -1,0 +1,278 @@
+generator inventoryClient {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/inventoryClient"
+  previewFeatures = ["fullTextSearchPostgres"]
+  binaryTargets   = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource inventoryDb {
+  provider     = "postgresql"
+  url          = env("INVENTORY_DATABASE_URL")
+  relationMode = "prisma"
+}
+
+model Blob {
+  key         String       @inventoryDb.VarChar(255)
+  checksum    String
+  assetRef    String?      @unique @map("asset_ref") @inventoryDb.VarChar(512)
+  url         String?
+  size        Int?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  name        String
+  extension   String       @inventoryDb.VarChar(10)
+  fileType    String       @map("file_type")
+  id          Int          @id @default(autoincrement())
+  attachments Attachment[]
+
+  @@index([key])
+  @@map("blobs")
+}
+
+model Attachment {
+  metadata       Json?
+  attachableType String    @map("attachable_type")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id             Int       @id @default(autoincrement())
+  blobId         Int       @map("blob_id")
+  attachableId   Int       @map("attachable_id")
+  attachmentType String    @map("attachment_type")
+  item           Item      @relation("images", fields: [attachableId], references: [id])
+  blob           Blob      @relation(fields: [blobId], references: [id])
+  mainImageFor   Item[]    @relation("mainImage")
+
+  @@unique([blobId, attachableId, attachableType, attachmentType])
+  @@index([blobId, attachableId, attachableType, attachmentType])
+  @@map("attachments")
+}
+
+model Item {
+  id               Int          @id @default(autoincrement())
+  kind             ItemKind
+  itemCode         String       @map("item_code") @inventoryDb.VarChar(255)
+  status           String       @default("ACTIVE") @inventoryDb.VarChar(20)
+  addressLine1     String?      @map("address_line1") @inventoryDb.VarChar(255)
+  addressLine2     String?      @map("address_line2") @inventoryDb.VarChar(255)
+  addressCity      String?      @map("address_city") @inventoryDb.VarChar(100)
+  addressStateCode String?      @map("address_state_code") @inventoryDb.VarChar(32)
+  addressPostalCode String?     @map("address_postal_code") @inventoryDb.VarChar(20)
+  addressCountryCode String?    @map("address_country_code") @inventoryDb.VarChar(3)
+  addressLatitude  Float?       @map("address_latitude")
+  addressLongitude Float?       @map("address_longitude")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  deletedAt        DateTime?    @map("deleted_at")
+  mainImageId      Int?         @map("main_image_id")
+  sellerIdentifier String       @default("seller") @map("seller_identifier") @inventoryDb.VarChar(50)
+  images           Attachment[] @relation("images")
+  mainImage        Attachment?  @relation("mainImage", fields: [mainImageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  components       Component[]
+  movements        Movement[]
+
+  @@unique([sellerIdentifier, itemCode])
+  @@index([sellerIdentifier])
+  @@index([kind])
+  @@index([sellerIdentifier, kind])
+  @@map("items")
+}
+
+model AccountAddress {
+  id                Int       @id @default(autoincrement())
+  accountIdentifier String    @map("account_identifier") @inventoryDb.VarChar(50)
+  type              String    @inventoryDb.VarChar(32)
+  line1             String?   @inventoryDb.VarChar(255)
+  line2             String?   @inventoryDb.VarChar(255)
+  city              String?   @inventoryDb.VarChar(100)
+  stateCode         String?   @map("state_code") @inventoryDb.VarChar(32)
+  postalCode        String?   @map("postal_code") @inventoryDb.VarChar(20)
+  countryCode       String    @map("country_code") @inventoryDb.VarChar(3)
+  latitude          Float?
+  longitude         Float?
+  label             String?   @inventoryDb.VarChar(50)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  @@unique([accountIdentifier, type])
+  @@index([accountIdentifier])
+  @@map("account_addresses")
+}
+
+model Component {
+  id                Int                @id @default(autoincrement())
+  itemId            Int                @map("item_id")
+  childType         ComponentChildType @map("child_type")
+  instanceId        Int?               @unique @map("instance_id")
+  bundleId          Int?               @map("bundle_id")
+  componentSnapshot Json?              @map("component_snapshot")
+  position          Int?               @map("position")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  item              Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  instance          Instance?          @relation(fields: [instanceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bundle            Bundle?            @relation(fields: [bundleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([itemId, bundleId])
+  @@index([itemId])
+  @@index([bundleId])
+  @@map("components")
+}
+
+model Instance {
+  id          Int         @id @default(autoincrement())
+  identifier  String      @inventoryDb.VarChar(255)
+  sku         String      @inventoryDb.VarChar(50)
+  productType ProductType @map("product_type")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  component   Component?
+
+  @@unique([identifier, sku, productType])
+  @@index([sku])
+  @@map("instances")
+}
+
+model Bundle {
+  id          Int         @id @default(autoincrement())
+  sku         String      @inventoryDb.VarChar(50)
+  productType ProductType @map("product_type")
+  count       Int         @default(1)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  components  Component[]
+
+  @@unique([sku, productType, count])
+  @@index([sku])
+  @@map("bundles")
+}
+
+model Movement {
+  id        Int               @id @default(autoincrement())
+  quantity  Int
+  createdAt DateTime          @default(now()) @map("created_at")
+  itemId    Int               @map("item_id")
+  direction MovementDirection
+  reason    MovementReason
+  metadata  Json?
+  createdBy Int?              @map("created_by")
+  item      Item              @relation(fields: [itemId], references: [id])
+
+  @@index([itemId, direction])
+  @@map("movements")
+}
+
+model OffersOffer {
+  id                  Int                     @id @default(autoincrement())
+  title               String                  @inventoryDb.VarChar(200)
+  description         String
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  validFrom           DateTime                @default(now()) @map("valid_from")
+  validTo             DateTime?               @map("valid_to")
+  local               Boolean?                @default(true)
+  online              Boolean?                @default(false)
+  slug                String?                 @unique @inventoryDb.VarChar(255)
+  deletedAt           DateTime?               @map("deleted_at")
+  currentPriceId      Int?                    @unique @map("current_price_id")
+  sellerIdentifier    String?                 @map("seller_identifier") @inventoryDb.VarChar(50)
+  itemCode            String?                 @map("item_code") @inventoryDb.VarChar(255)
+  minOrderUnits       Int                     @default(1) @map("min_order_units")
+  status              OfferStatus             @default(INACTIVE)
+  version             Int                     @default(0)
+  expiredAt           DateTime?               @map("expired_at")
+  latestPublicationId Int?                    @unique @map("latest_publication_id")
+  addressState        String?                 @map("address_state") @inventoryDb.VarChar(10)
+  addressCountry      String?                 @map("address_country") @inventoryDb.VarChar(3)
+  currencyCode        String?                 @map("currency_code") @inventoryDb.VarChar(3)
+  currencySymbol      String?                 @map("currency_symbol") @inventoryDb.VarChar(10)
+  publications        OffersOfferPublication[] @relation("OffersPublications")
+  currentPrice        OffersPrice?            @relation("OffersCurrentPrice", fields: [currentPriceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  latestPublication   OffersOfferPublication? @relation("OffersLatestPublication", fields: [latestPublicationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  prices              OffersPrice[]           @relation("OffersPrices")
+  visits              OffersVisit[]           @relation("OffersVisits")
+
+  @@index([sellerIdentifier, itemCode, deletedAt])
+  @@index([sellerIdentifier, itemCode, addressCountry, addressState, minOrderUnits])
+  @@map("offers")
+}
+
+model OffersOfferPublication {
+  id             Int                    @id @default(autoincrement())
+  offerId        Int                    @map("offer_id")
+  version        Int
+  action         OfferPublicationAction
+  publishedAt    DateTime               @default(now()) @map("published_at")
+  offer          OffersOffer            @relation("OffersPublications", fields: [offerId], references: [id])
+  latestForOffer OffersOffer?           @relation("OffersLatestPublication")
+
+  @@index([offerId, publishedAt])
+  @@index([offerId, version])
+  @@map("offer_publications")
+}
+
+model OffersVisit {
+  id        Int         @id @default(autoincrement())
+  offerId   Int         @map("offer_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+  offer     OffersOffer @relation("OffersVisits", fields: [offerId], references: [id])
+
+  @@index([offerId, createdAt])
+  @@map("visits")
+}
+
+model OffersPrice {
+  id           Int          @id @default(autoincrement())
+  offerId      Int          @map("offer_id")
+  amount       Decimal      @inventoryDb.Decimal(10, 2)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  currentOffer OffersOffer? @relation("OffersCurrentPrice")
+  offer        OffersOffer  @relation("OffersPrices", fields: [offerId], references: [id])
+
+  @@index([offerId])
+  @@map("prices")
+}
+
+enum ItemKind {
+  STOCK
+  LISTING
+}
+
+enum OfferPublicationAction {
+  LIST
+  DELIST
+}
+
+enum OfferStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ComponentChildType {
+  INSTANCE
+  BUNDLE
+}
+
+enum ProductType {
+  PHONE
+  WATCH
+  TABLET
+  ACCESSORY
+}
+
+enum MovementDirection {
+  IN
+  OUT
+}
+
+enum MovementReason {
+  STOCKED
+  SOLD
+  TRANSFERRED
+  DAMAGED
+  ADJUSTMENT
+  ADJUSTED
+  RESERVED
+}

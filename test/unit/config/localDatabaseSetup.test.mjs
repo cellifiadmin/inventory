@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+const readRepoFile = (relativePath) =>
+  readFileSync(path.join(repoRoot, relativePath), 'utf8');
+
+test('inventory local and test database contract includes bootstrap scripts and extracted migrations', () => {
+  const packageJson = JSON.parse(readRepoFile('package.json'));
+  const envLocal = readRepoFile('.env.local');
+  const envTest = readRepoFile('.env.test');
+  const migrationsDir = path.join(repoRoot, 'prisma', 'migrations');
+  const migrationNames = existsSync(migrationsDir)
+    ? readdirSync(migrationsDir).filter((entry) =>
+        existsSync(path.join(migrationsDir, entry, 'migration.sql'))
+      )
+    : [];
+
+  assert.equal(
+    packageJson.scripts['local:db:setup'],
+    'bash scripts/setup-local-db.sh'
+  );
+  assert.equal(
+    packageJson.scripts['test:db:setup'],
+    'bash scripts/setup-test-db.sh'
+  );
+  assert.match(
+    packageJson.scripts['prisma:migrate:deploy'],
+    /prisma migrate deploy --schema=prisma\/schema\.prisma/
+  );
+  assert.match(envLocal, /^DATABASE_URL=postgresql:\/\/inventory_user:inventory_password@localhost:5432\/inventory_local$/m);
+  assert.match(envTest, /^DATABASE_URL=postgresql:\/\/inventory_test:test_password_local@localhost:5432\/inventory_test$/m);
+  assert.equal(existsSync(path.join(repoRoot, 'scripts', 'setup-local-db.sh')), true);
+  assert.equal(existsSync(path.join(repoRoot, 'scripts', 'setup-test-db.sh')), true);
+  assert.equal(
+    existsSync(path.join(repoRoot, 'prisma', 'migrations', 'migration_lock.toml')),
+    true
+  );
+  assert.deepEqual(migrationNames, ['20260525221500_inventory_split_baseline']);
+});

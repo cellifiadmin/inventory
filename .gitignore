@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Serverless artifacts
+.serverless/
+..serverless/
+
+# Build output
+dist/
+.build/
+**/.build/
+coverage/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.test
+
+# Defensive local output
+/undefined/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS/editor temp files
+.DS_Store
+.vscode/
+.idea/
+.cursor/

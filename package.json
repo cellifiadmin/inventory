@@ -1,0 +1,50 @@
+{
+  "name": "inventory",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand test/unit",
+    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs",
+    "ensure:sharp:lambda": "npm install --no-save --os=linux --cpu=x64 --libc=glibc sharp",
+    "local:db:setup": "bash scripts/setup-local-db.sh",
+    "test:db:setup": "bash scripts/setup-test-db.sh",
+    "prisma:generate": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma generate --schema=prisma/schema.prisma'",
+    "prisma:migrate:deploy": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma migrate deploy --schema=prisma/schema.prisma'",
+    "prisma:validate": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma validate --schema=prisma/schema.prisma'",
+    "dev": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless offline --stage local",
+    "local": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless offline --stage local",
+    "prepackage:local": "npm run ensure:sharp:lambda",
+    "package:local": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless package --stage local",
+    "deploy": "npm run deploy:dev",
+    "predeploy:dev": "npm run ensure:sharp:lambda",
+    "deploy:dev": "AWS_PROFILE=default AWS_DEFAULT_PROFILE=default serverless deploy --stage development",
+    "predeploy:prod": "npm run ensure:sharp:lambda",
+    "deploy:prod": "AWS_PROFILE=default AWS_DEFAULT_PROFILE=default serverless deploy --stage production"
+  },
+  "prisma": {
+    "seed": "echo 'Inventory service does not define a seed yet'"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.2.0",
+    "@types/aws-lambda": "^8.10.147",
+    "@types/jest": "^30.0.0",
+    "dotenv": "^17.2.3",
+    "jest": "^30.2.0",
+    "prisma": "^6.8.2",
+    "serverless": "^4.6.2",
+    "serverless-offline": "^14.4.0",
+    "ts-jest": "^29.4.5",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.922.0",
+    "@prisma/client": "^6.8.2",
+    "aws-sdk": "^2.1692.0",
+    "http-errors": "^2.0.0",
+    "http-status-codes": "^2.3.0",
+    "redis": "^4.7.1",
+    "sharp": "^0.34.2",
+    "zod": "^3.24.1"
+  }
+}
