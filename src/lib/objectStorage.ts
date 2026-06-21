@@ -1,4 +1,10 @@
-import AWS from 'aws-sdk';
+import {
+  GetObjectCommand,
+  type GetObjectCommandInput,
+  S3Client,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export const INVENTORY_LISTING_PHOTO_USAGE = 'inventory-listing-photo' as const;
 export const SUPPORTED_LISTING_PHOTO_MIME_TYPES = [
@@ -30,6 +36,7 @@ type ObjectStorageEnv = Partial<
     | 'CELLIFI_AWS_ACCESS_KEY_ID'
     | 'CELLIFI_AWS_SECRET_ACCESS_KEY'
     | 'AWS_ACCESS_KEY_ID'
+    | 'AWS_REGION'
     | 'AWS_SECRET_ACCESS_KEY'
     | 'CELLIFI_AWS_REGION'
     | 'CLOUDFRONT_DOMAIN'
@@ -39,6 +46,10 @@ type ObjectStorageEnv = Partial<
     string
   >
 >;
+
+export type ObjectStorageClient = {
+  getSignedUrl(operation: 'getObject', input: GetObjectCommandInput): Promise<string>;
+};
 
 const trimToUndefined = (value?: string): string | undefined => {
   const trimmed = value?.trim();
@@ -68,8 +79,11 @@ const resolveAwsCredentialValue = (
 
 export const resolveObjectStorageClientConfig = (
   env: ObjectStorageEnv = process.env
-): AWS.S3.ClientConfiguration => {
-  const region = trimToUndefined(env.CELLIFI_AWS_REGION) || 'us-east-1';
+): S3ClientConfig => {
+  const region =
+    trimToUndefined(env.CELLIFI_AWS_REGION) ||
+    trimToUndefined(env.AWS_REGION) ||
+    'us-east-1';
   const endpoint = trimToUndefined(env.S3_ENDPOINT);
 
   if (!endpoint) {
@@ -88,15 +102,25 @@ export const resolveObjectStorageClientConfig = (
       ),
     },
     endpoint,
+    forcePathStyle: true,
     region,
-    s3ForcePathStyle: true,
   };
 };
 
 export const createObjectStorageS3 = (
   env: ObjectStorageEnv = process.env
-): AWS.S3 => {
-  return new AWS.S3(resolveObjectStorageClientConfig(env));
+): ObjectStorageClient => {
+  const client = new S3Client(resolveObjectStorageClientConfig(env));
+
+  return {
+    getSignedUrl: async (operation, input) => {
+      if (operation !== 'getObject') {
+        throw new Error(`Unsupported signed URL operation: ${operation}`);
+      }
+
+      return getSignedUrl(client, new GetObjectCommand(input));
+    },
+  };
 };
 
 export const isSupportedListingPhotoMimeType = (mimeType: string): boolean => {

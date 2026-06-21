@@ -40,5 +40,9 @@ test('inventory local and test database contract includes bootstrap scripts and 
     existsSync(path.join(repoRoot, 'prisma', 'migrations', 'migration_lock.toml')),
     true
   );
-  assert.deepEqual(migrationNames, ['20260525221500_inventory_split_baseline']);
+  assert.deepEqual(migrationNames, [
+    '20260525221500_inventory_split_baseline',
+    '20260610100000_add_blob_asset_ref',
+    '20260611231500_allow_duplicate_blob_keys',
+  ]);
 });

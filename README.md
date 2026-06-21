@@ -62,6 +62,13 @@ Current local verification:
 - `npm run package:local` passes and prepares the linux `sharp` binary needed for Lambda packaging
 - local published image `cdnUrl` values should come from `OBJECT_STORAGE_PUBLIC_BASE_URL` (for example `http://cdn.localhost.localstack.cloud:4566/cellifi-local`) while raw object reads/writes still use `S3_ENDPOINT=http://localhost:4566`
 
+Env files contract:
+- tracked stage files are `.env.local`, `.env.test`, `.env.development`, and `.env.production`
+- `.env.local` / `.env.test` keep direct inventory-local values, including inventory-owned queue wiring and local object-storage settings
+- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace
+- inventory env files must stay inventory-scoped and may carry only inventory-owned runtime variables and inventory-owned integration values such as the offers stock-sync queue settings
+- no committed shared `inventory/.env` should be used as the source of truth
+
 Local/test database contract:
 - `inventory` uses native Postgres on `localhost:5432`
 - local DB: `inventory_local` with role `inventory_user`
