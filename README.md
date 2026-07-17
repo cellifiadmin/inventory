@@ -16,15 +16,19 @@ Current scope:
 - `POST /inventory/item-resolutions` must stay decoupled from seller listing read-model modules; IMEI-conflict link lookups should use narrow `offers` reads instead of importing the broader inventory listing browse service
 - seller-facing attachment CDN endpoints (`GET /inventory/items/{id}/attachments/cdn` and `GET /inventory/items/attachments/cdn`) publish stable object URLs, but the attachment membership itself is mutable, so both responses must stay `Cache-Control: no-store`
 - seller inventory account addresses under `/inventory/account-addresses/*`
+- admin owner-side account-address reads and writes under
+  `/inventory/admin/accounts/{accountIdentifier}/addresses`
 - stock movement and sold-state flows
-- approved business-upgrade address sync through the internal Lambda
-  `inventory-<stage>-sync-approved-addresses`
+- owner-first seller/admin account-address persistence reused before UM
+  account-upgrade request creation and later read live by request pages
 - seller `WAREHOUSE`/`PICKUP` account-address coordinate ownership and geocoding
 
 Extracted HTTP surface:
 - `/inventory/media-grants`
 - `/inventory/items/*`
 - `/inventory/account-addresses/*`
+- `/inventory/admin/accounts/{accountIdentifier}/addresses`
+- `/inventory/admin/accounts/{accountIdentifier}/addresses/{type}`
 - `/inventory/item-resolutions`
 - `/inventories`
 - `/inventories/{id}/mark-as-sold`
@@ -50,11 +54,23 @@ Stock ownership contract:
 
 Seller account-address coordinate contract:
 - `inventory` is the only service that derives missing latitude/longitude for seller `WAREHOUSE` and `PICKUP` account addresses
-- direct `/inventory/account-addresses/*` writes and approved-address provisioning both geocode missing coordinates before persistence
+- seller `/inventory/account-addresses/*` writes and admin `/inventory/admin/accounts/{accountIdentifier}/addresses/{type}` writes both geocode missing coordinates before persistence
 - provided coordinates are preserved as-is; downstream services should only reuse them
 - if a new address is missing coordinates and does not contain a complete geocodable address (`line1`, `city`, `stateCode`, `postalCode`, `countryCode`), the write is rejected instead of saving null coordinates
 - no legacy backfill is performed in this service for previously persisted null-coordinate records
 - runtime geocoding requires `GOOGLE_MAPS_API_KEY` in both local env and cloud runtime-sensitive secret bundles
+- admin owner-side reads reuse the same current account-address record shape as
+  seller `GET /inventory/account-addresses`, but target the path
+  `accountIdentifier`
+- admin owner-side writes reuse the same normalization, validation, and
+  coordinate-derivation behavior as seller `PUT /inventory/account-addresses/{type}`,
+  but upsert against the path-owned `accountIdentifier` via
+  `PUT /inventory/admin/accounts/{accountIdentifier}/addresses/{type}`
+- upgrade-request pages in `mp` read current `WAREHOUSE`/`PICKUP` state live from
+  these owner-side records rather than from UM request snapshots
+- admin access for `/inventory/admin/*` is token-authoritative: only
+  `authUser.isAdmin === true` grants access, and UM-enriched `userRoles` must
+  not elevate permissions
 
 Current local verification:
 - Prisma generate and validate pass against `prisma/schema.prisma`

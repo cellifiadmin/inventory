@@ -30,6 +30,12 @@ type SaveAccountAddressParams = {
   address: AccountAddressInput;
 };
 
+type SaveAccountAddressByAccountIdentifierParams = {
+  accountIdentifier: string;
+  type: string;
+  address: AccountAddressInput;
+};
+
 type DeleteAccountAddressParams = {
   authUser: AuthUserType;
   type: string;
@@ -58,12 +64,33 @@ const normalizeCountryCode = (value?: string | null): string | null => {
   return trimmed ? trimmed.toUpperCase() : null;
 };
 
-const normalizeCoordinate = (value?: number | null): number | null => {
+const normalizeCoordinate = ({
+  value,
+  field,
+  min,
+  max,
+}: {
+  value?: number | null;
+  field: 'latitude' | 'longitude';
+  min: number;
+  max: number;
+}): number | null => {
   if (value == null) {
     return null;
   }
 
-  return Number.isFinite(value) ? value : null;
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  if (value < min || value > max) {
+    throw createError(
+      StatusCodes.BAD_REQUEST,
+      `${field} must be between ${min} and ${max}`
+    );
+  }
+
+  return value;
 };
 
 const normalizeAccountAddressType = (value?: string | null): AccountAddressType | null => {
@@ -78,14 +105,18 @@ const normalizeAccountAddressType = (value?: string | null): AccountAddressType 
     : null;
 };
 
-const requireAccountIdentifier = (authUser: AuthUserType): string => {
-  const accountIdentifier = normalizeTrimmed(authUser.accountIdentifier);
+const requireNormalizedAccountIdentifier = (accountIdentifier?: string | null): string => {
+  const normalizedAccountIdentifier = normalizeTrimmed(accountIdentifier);
 
-  if (!accountIdentifier) {
+  if (!normalizedAccountIdentifier) {
     throw createError(StatusCodes.BAD_REQUEST, 'Account identifier required');
   }
 
-  return accountIdentifier;
+  return normalizedAccountIdentifier;
+};
+
+const requireAccountIdentifier = (authUser: AuthUserType): string => {
+  return requireNormalizedAccountIdentifier(authUser.accountIdentifier);
 };
 
 const normalizeAddressInput = (input: AccountAddressInput) => {
@@ -102,8 +133,18 @@ const normalizeAddressInput = (input: AccountAddressInput) => {
     stateCode: normalizeTrimmed(input.stateCode),
     postalCode: normalizeTrimmed(input.postalCode),
     countryCode,
-    latitude: normalizeCoordinate(input.latitude),
-    longitude: normalizeCoordinate(input.longitude),
+    latitude: normalizeCoordinate({
+      value: input.latitude,
+      field: 'latitude',
+      min: -90,
+      max: 90,
+    }),
+    longitude: normalizeCoordinate({
+      value: input.longitude,
+      field: 'longitude',
+      min: -180,
+      max: 180,
+    }),
     label: normalizeTrimmed(input.label),
   };
 };
@@ -172,13 +213,14 @@ const mapAccountAddressList = (
   records: Array<Awaited<ReturnType<typeof prismaInventory.accountAddress.findFirstOrThrow>>>,
 ) => records.map(mapAccountAddressRecord);
 
-export const listAccountAddresses = async ({
-  authUser,
-}: ListAccountAddressesParams) => {
-  const accountIdentifier = requireAccountIdentifier(authUser);
+export const listAccountAddressesByAccountIdentifier = async (
+  accountIdentifier: string,
+) => {
+  const normalizedAccountIdentifier = requireNormalizedAccountIdentifier(accountIdentifier);
+
   const records = await prismaInventory.accountAddress.findMany({
     where: {
-      accountIdentifier,
+      accountIdentifier: normalizedAccountIdentifier,
       type: {
         in: [...ACCOUNT_ADDRESS_TYPES],
       },
@@ -190,12 +232,33 @@ export const listAccountAddresses = async ({
   return mapAccountAddressList(records);
 };
 
+export const listAccountAddresses = async ({
+  authUser,
+}: ListAccountAddressesParams) => {
+  const accountIdentifier = requireAccountIdentifier(authUser);
+  return listAccountAddressesByAccountIdentifier(accountIdentifier);
+};
+
 export const saveAccountAddress = async ({
   authUser,
   type,
   address,
 }: SaveAccountAddressParams) => {
   const accountIdentifier = requireAccountIdentifier(authUser);
+
+  return upsertAccountAddressByAccountIdentifier({
+    accountIdentifier,
+    type,
+    address,
+  });
+};
+
+export const upsertAccountAddressByAccountIdentifier = async ({
+  accountIdentifier,
+  type,
+  address,
+}: SaveAccountAddressByAccountIdentifierParams) => {
+  const normalizedAccountIdentifier = requireNormalizedAccountIdentifier(accountIdentifier);
   const normalizedType = normalizeAccountAddressType(type);
 
   if (!normalizedType) {
@@ -209,7 +272,7 @@ export const saveAccountAddress = async ({
   const record = await prismaInventory.accountAddress.upsert({
     where: {
       accountIdentifier_type: {
-        accountIdentifier,
+        accountIdentifier: normalizedAccountIdentifier,
         type: normalizedType,
       },
     },
@@ -218,7 +281,7 @@ export const saveAccountAddress = async ({
       deletedAt: null,
     },
     create: {
-      accountIdentifier,
+      accountIdentifier: normalizedAccountIdentifier,
       type: normalizedType,
       ...normalizedAddress,
     },
@@ -265,10 +328,7 @@ export const upsertApprovedAccountAddresses = async ({
   accountIdentifier,
   addresses,
 }: UpsertApprovedAccountAddressesParams) => {
-  const normalizedAccountIdentifier = normalizeTrimmed(accountIdentifier);
-  if (!normalizedAccountIdentifier) {
-    throw createError(StatusCodes.BAD_REQUEST, 'Account identifier required');
-  }
+  const normalizedAccountIdentifier = requireNormalizedAccountIdentifier(accountIdentifier);
 
   const seenTypes = new Set<AccountAddressType>();
   const normalizedAddresses = await Promise.all(
@@ -355,12 +415,8 @@ export const getAccountAddressByType = async (
   accountIdentifier: string,
   type: string,
 ) => {
-  const normalizedAccountIdentifier = normalizeTrimmed(accountIdentifier);
+  const normalizedAccountIdentifier = requireNormalizedAccountIdentifier(accountIdentifier);
   const normalizedType = normalizeAccountAddressType(type);
-
-  if (!normalizedAccountIdentifier) {
-    throw createError(StatusCodes.BAD_REQUEST, 'Account identifier required');
-  }
 
   if (!normalizedType) {
     throw createError(StatusCodes.BAD_REQUEST, 'Valid account address type required');

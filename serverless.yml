@@ -222,6 +222,24 @@ functions:
           method: get
           authorizer:
             name: sharedAuth
+  adminListAccountAddresses:
+    handler: src/inventory/handlers/account-addresses/adminList.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/admin/accounts/{accountIdentifier}/addresses
+          method: get
+          authorizer:
+            name: sharedAuth
+  adminUpsertAccountAddress:
+    handler: src/inventory/handlers/account-addresses/adminUpsert.handler
+    timeout: 20
+    events:
+      - httpApi:
+          path: /inventory/admin/accounts/{accountIdentifier}/addresses/{type}
+          method: put
+          authorizer:
+            name: sharedAuth
   upsertAccountAddress:
     handler: src/inventory/handlers/account-addresses/upsert.handler
     timeout: 20
