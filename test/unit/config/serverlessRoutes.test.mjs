@@ -20,6 +20,9 @@ const expectRoute = (routePath, method) => {
 
 test('inventory exposes the extracted inventory API surface', () => {
   expectRoute('/inventory/media-grants', 'post');
+  expectRoute('/stock/reserve', 'post');
+  expectRoute('/stock/commit', 'post');
+  expectRoute('/stock/release', 'post');
   expectRoute('/inventory/items/{id}/edit', 'get');
   expectRoute('/inventory/items/{id}/images', 'get');
   expectRoute('/inventory/items/{id}/main-image', 'get');
@@ -36,6 +39,14 @@ test('inventory exposes the extracted inventory API surface', () => {
   expectRoute('/inventory/account-addresses/{type}', 'delete');
   expectRoute('/inventory/item-resolutions', 'post');
   expectRoute('/inventories/{id}/mark-as-sold', 'post');
+});
+
+test('inventory exposes the scheduled stock reservation sweeper', () => {
+  assert.match(
+    serverlessConfig,
+    /expireStockReservations:[\s\S]*?handler:\s*src\/handlers\/scheduled\/stock-reservations\/expire\.handler/
+  );
+  assert.match(serverlessConfig, /schedule:/);
 });
 
 test('inventory serverless surface does not expose catalog or offers routes', () => {

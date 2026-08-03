@@ -275,4 +275,5 @@ enum MovementReason {
   ADJUSTMENT
   ADJUSTED
   RESERVED
+  RELEASED
 }

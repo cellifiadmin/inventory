@@ -19,6 +19,7 @@ Current scope:
 - admin owner-side account-address reads and writes under
   `/inventory/admin/accounts/{accountIdentifier}/addresses`
 - stock movement and sold-state flows
+- signed internal stock reserve / commit / release flows plus scheduled reservation expiry
 - owner-first seller/admin account-address persistence reused before UM
   account-upgrade request creation and later read live by request pages
 - seller `WAREHOUSE`/`PICKUP` account-address coordinate ownership and geocoding
@@ -32,6 +33,9 @@ Extracted HTTP surface:
 - `/inventory/item-resolutions`
 - `/inventories`
 - `/inventories/{id}/mark-as-sold`
+- `/stock/reserve`
+- `/stock/commit`
+- `/stock/release`
 
 Listing photo normalization contract:
 - Active MP seller listing-photo uploads now use the centralized flow:
@@ -49,8 +53,14 @@ Listing photo normalization contract:
 Stock ownership contract:
 - inventory movement aggregation is the sole source of truth for remaining stock
 - `POST /inventories/{id}/mark-as-sold` may omit quantity; the service computes the live remaining balance and writes one `OUT` movement that zeroes the ledger
+- internal checkout reservation flows use immutable movement lineage only; there is no standalone reservation table
+- `POST /stock/reserve` is all-or-nothing by checkout version and creates one `OUT + RESERVED` movement per checkout line with minimal correlation metadata `checkoutId + version + lineId + expiresAt`
+- `POST /stock/commit` is idempotent by checkout line identity and closes an active hold by writing `IN + RELEASED (cause=commit)` and `OUT + SOLD` atomically for each line
+- `POST /stock/release` is the compensating path for checkout cancel and unsuccessful payment terminal states and writes `IN + RELEASED`
+- the scheduled reservation sweeper closes expired active holds with `IN + RELEASED (cause=expired)`
 - offers sync is emitted only when a newly created `OUT` movement transitions `availableUnits` from `> 0` to `0`
 - the zero-stock sync payload is keyed by `sellerIdentifier + itemCode + direction`; it does not include `inventoryItemId`, `remainingQuantity`, or `totalStock`
+- internal `/stock/*` routes are protected by the shared HMAC service-signature contract using `x-mp-timestamp` + `x-mp-signature` and `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET`
 
 Seller account-address coordinate contract:
 - `inventory` is the only service that derives missing latitude/longitude for seller `WAREHOUSE` and `PICKUP` account addresses
@@ -81,7 +91,7 @@ Current local verification:
 Env files contract:
 - tracked stage files are `.env.local`, `.env.test`, `.env.development`, and `.env.production`
 - `.env.local` / `.env.test` keep direct inventory-local values, including inventory-owned queue wiring and local object-storage settings
-- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace
+- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET` from the runtime secret bundle and `STOCK_RESERVATION_TIMEOUT_MINUTES` from inventory-owned SSM
 - inventory env files must stay inventory-scoped and may carry only inventory-owned runtime variables and inventory-owned integration values such as the offers stock-sync queue settings
 - no committed shared `inventory/.env` should be used as the source of truth
 
