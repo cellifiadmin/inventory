@@ -91,6 +91,8 @@ Current local verification:
 Env files contract:
 - tracked stage files are `.env.local`, `.env.test`, `.env.development`, and `.env.production`
 - `.env.local` / `.env.test` keep direct inventory-local values, including inventory-owned queue wiring and local object-storage settings
+- when local signed callers such as `commerce` hit `/stock/*`, both services
+  must share the same `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET` value
 - `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET` from the runtime secret bundle and `STOCK_RESERVATION_TIMEOUT_MINUTES` from inventory-owned SSM
 - inventory env files must stay inventory-scoped and may carry only inventory-owned runtime variables and inventory-owned integration values such as the offers stock-sync queue settings
 - no committed shared `inventory/.env` should be used as the source of truth
