@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { createHmac } from 'crypto';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 const mockReserveStock = jest.fn();
@@ -48,9 +49,6 @@ describe('stock reserve handler', () => {
       lines: [{ lineId: 'ln_1', quantity: 2 }],
     });
 
-    const { createServiceRequestSignature } = require('@/services/serviceRequestSignatureService') as {
-      createServiceRequestSignature: (input: { timestamp: string; body: string }) => string;
-    };
     const { handler } = require('@/inventory/handlers/stock/reserve') as {
       handler: (event: APIGatewayProxyEventV2, context: unknown) => Promise<unknown>;
     };
@@ -68,7 +66,9 @@ describe('stock reserve handler', () => {
       ],
     });
     const timestamp = new Date().toISOString();
-    const signature = createServiceRequestSignature({ timestamp, body });
+    const signature = createHmac('sha256', 'inventory-service-signing-secret')
+      .update(`${timestamp}./stock/reserve.${body}`)
+      .digest('hex');
 
     const response = (await handler(
       buildEvent({

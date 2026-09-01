@@ -15,6 +15,7 @@ export const serviceSignatureMiddleware = (
     assertServiceRequestSignature({
       headers: event.headers ?? {},
       body: event.body ?? '',
+      pathAndQuery: `${event.rawPath}${event.rawQueryString ? `?${event.rawQueryString}` : ''}`,
     });
 
     return handler(event, context);

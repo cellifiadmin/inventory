@@ -42,7 +42,11 @@ describe('stock release handler', () => {
     });
 
     const { createServiceRequestSignature } = require('@/services/serviceRequestSignatureService') as {
-      createServiceRequestSignature: (input: { timestamp: string; body: string }) => string;
+      createServiceRequestSignature: (input: {
+        timestamp: string;
+        body: string;
+        pathAndQuery?: string;
+      }) => string;
     };
     const { handler } = require('@/inventory/handlers/stock/release') as {
       handler: (event: APIGatewayProxyEventV2, context: unknown) => Promise<unknown>;
@@ -55,7 +59,11 @@ describe('stock release handler', () => {
       lines: [{ lineId: 'ln_1' }],
     });
     const timestamp = new Date().toISOString();
-    const signature = createServiceRequestSignature({ timestamp, body });
+    const signature = createServiceRequestSignature({
+      timestamp,
+      body,
+      pathAndQuery: '/stock/release',
+    });
 
     const response = (await handler(
       buildEvent({

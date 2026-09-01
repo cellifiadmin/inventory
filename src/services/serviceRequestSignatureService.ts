@@ -34,14 +34,16 @@ const normalizeHeaders = (
 export const createServiceRequestSignature = (input: {
   timestamp: string;
   body: string;
+  pathAndQuery: string;
 }): string =>
   createHmac('sha256', resolveSigningSecret())
-    .update(`${input.timestamp}.${input.body}`)
+    .update(`${input.timestamp}.${input.pathAndQuery}.${input.body}`)
     .digest('hex');
 
 export const assertServiceRequestSignature = (input: {
   headers: Record<string, string | undefined>;
   body: string;
+  pathAndQuery: string;
   now?: Date;
 }): void => {
   const normalizedHeaders = normalizeHeaders(input.headers);
@@ -68,6 +70,7 @@ export const assertServiceRequestSignature = (input: {
   const expectedSignature = createServiceRequestSignature({
     timestamp,
     body: input.body,
+    pathAndQuery: input.pathAndQuery,
   });
   const providedBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expectedSignature);

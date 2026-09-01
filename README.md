@@ -60,7 +60,7 @@ Stock ownership contract:
 - the scheduled reservation sweeper closes expired active holds with `IN + RELEASED (cause=expired)`
 - offers sync is emitted only when a newly created `OUT` movement transitions `availableUnits` from `> 0` to `0`
 - the zero-stock sync payload is keyed by `sellerIdentifier + itemCode + direction`; it does not include `inventoryItemId`, `remainingQuantity`, or `totalStock`
-- internal `/stock/*` routes are protected by the shared HMAC service-signature contract using `x-mp-timestamp` + `x-mp-signature` and `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET`
+- internal `/stock/*` routes are protected by the shared HMAC service-signature contract using `x-mp-timestamp` + `x-mp-signature`, `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET`, and the exact request path/query; body-only legacy signatures are rejected
 
 Seller account-address coordinate contract:
 - `inventory` is the only service that derives missing latitude/longitude for seller `WAREHOUSE` and `PICKUP` account addresses
