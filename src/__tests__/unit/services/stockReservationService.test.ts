@@ -4,6 +4,7 @@ const mockItemFindUnique = jest.fn();
 const mockMovementFindMany = jest.fn();
 const mockMovementCreate = jest.fn();
 const mockTransaction = jest.fn();
+const mockQueryRaw = jest.fn<(parts: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>>();
 
 jest.mock('@/lib/prismaInventory', () => ({
   __esModule: true,
@@ -24,9 +25,13 @@ describe('stock reservation services', () => {
     jest.resetModules();
     jest.clearAllMocks();
     process.env.STOCK_RESERVATION_TIMEOUT_MINUTES = '15';
+    mockQueryRaw.mockImplementation(async (parts: TemplateStringsArray, ...values: unknown[]) =>
+      parts.join('').includes('clock_timestamp') ? [{ now: new Date('2026-08-03T18:30:00.000Z') }]
+        : parts.join('').includes('FROM items') ? [{ id: values[0] }] : []);
 
     mockTransaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) =>
       callback({
+        $queryRaw: mockQueryRaw,
         item: {
           findUnique: mockItemFindUnique,
         },

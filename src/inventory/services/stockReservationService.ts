@@ -7,7 +7,6 @@ import {
   assertLineNotCommitted,
   assertPositiveAvailableUnits,
   buildLineMetadataFilter,
-  buildReservedMovementIdFilter,
   calculateMovementBalance,
   getMetadataDate,
   isReservationActive,
@@ -91,7 +90,19 @@ export const reserveStock = async (rawInput: ReserveStockInput) => {
   const input = reserveStockSchema.parse(rawInput);
 
   return prismaInventory.$transaction(async (tx) => {
-    const now = new Date();
+    const scope = JSON.stringify(['inventory-reservation', input.checkoutId, input.version]);
+    await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${scope}, 0))`;
+    const resolved = [];
+    for (const line of input.lines) {
+      resolved.push({ line, item: await getItemByBoundary(tx, line.accountId, line.sourceInvId) });
+    }
+    const distinctItems = new Map(resolved.map(value => [value.item.id, value]));
+    for (const { line, item } of [...distinctItems.values()].sort((a, b) => a.item.id - b.item.id)) {
+      const locked = await tx.$queryRaw<Array<{ id: number }>>`
+        SELECT id FROM items WHERE id = ${item.id} AND deleted_at IS NULL FOR UPDATE`;
+      if (locked.length !== 1) throw createError(StatusCodes.NOT_FOUND, `Inventory item not found for ${line.sourceInvId}`);
+    }
+    const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
     const expiresAt = resolveReservationExpiry(now);
     const linesToCreate: Array<{
       itemId: number;
@@ -100,8 +111,8 @@ export const reserveStock = async (rawInput: ReserveStockInput) => {
     }> = [];
     let existingReservationExpiry: Date | null = null;
 
-    for (const line of input.lines) {
-      const item = await getItemByBoundary(tx, line.accountId, line.sourceInvId);
+    const pendingQuantityByItem = new Map<number, number>();
+    for (const { line, item } of resolved) {
       const [itemMovements, lineScopedMovements] = await Promise.all([
         tx.movement.findMany({
           where: {
@@ -126,13 +137,21 @@ export const reserveStock = async (rawInput: ReserveStockInput) => {
       );
 
       if (activeReservation) {
-        existingReservationExpiry =
-          getMetadataDate(activeReservation.metadata, 'expiresAt') ?? existingReservationExpiry;
+        if (activeReservation.itemId !== item.id || activeReservation.quantity !== line.quantity) {
+          throw createError(StatusCodes.CONFLICT, `Reservation input changed for ${line.lineId}`);
+        }
+        const activeExpiry = getMetadataDate(activeReservation.metadata, 'expiresAt');
+        if (!activeExpiry || activeExpiry <= now) {
+          throw createError(StatusCodes.CONFLICT, `Reservation expiry invalid or elapsed for ${line.lineId}`);
+        }
+        if (existingReservationExpiry === null || activeExpiry < existingReservationExpiry) existingReservationExpiry = activeExpiry;
         continue;
       }
 
       const availableUnits = calculateMovementBalance(itemMovements as MovementRecord[]);
-      assertPositiveAvailableUnits(availableUnits, line.quantity, line.sourceInvId);
+      const requestedQuantity = (pendingQuantityByItem.get(item.id) ?? 0) + line.quantity;
+      assertPositiveAvailableUnits(availableUnits, requestedQuantity, line.sourceInvId);
+      pendingQuantityByItem.set(item.id, requestedQuantity);
 
       linesToCreate.push({
         itemId: item.id,
@@ -158,6 +177,9 @@ export const reserveStock = async (rawInput: ReserveStockInput) => {
       });
     }
 
+    if (existingReservationExpiry && linesToCreate.length > 0 && expiresAt < existingReservationExpiry) {
+      existingReservationExpiry = expiresAt;
+    }
     return {
       expiresAt: (existingReservationExpiry ?? expiresAt).toISOString(),
       lines: input.lines.map((line) => ({

@@ -118,3 +118,12 @@ Purchase workflow implementation verification:
 - `npm run test:purchase:providers` is reserved for real provider acceptance; absence of tests is a failed gate, not evidence of successful integration. Unit fault injection does not satisfy it.
 - `npm run test:purchase:regression` isolates characterized runtime simulation failures. The implementation branch intentionally retains failing business regressions until their owning changes land.
 - Reports are separate under `coverage/purchase-*`; module selection is recorded in `test/purchase-coverage-manifest.json`. `npm run test:config` also verifies unloaded-module coverage and suite separation.
+
+Reservation concurrency implementation:
+
+- Reservation acceptance serializes one checkout/version with a transaction advisory lock, then locks distinct inventory rows in ascending ID order before reading the ledger. Stock quantity remains derived only from movements.
+- Multiple request lines for the same item are validated by their combined pending quantity before any reservation movements are written. Duplicate line IDs are rejected. Concurrent replay preserves one hold, and replay with another item or quantity is rejected.
+- Reservation expiry uses the database clock. Existing holds require a valid, unelapsed deadline; missing or expired metadata is rejected without inventing a new expiry. Multiple existing deadlines return the earliest one.
+- This fixes the reproduced over-reservation and duplicate-replay cases. Typed reservation/payment-protection records, remaining stock-write serialization, asynchronous owner command/result transport and scheduled expiry replacement are still implementation work; the old mutation endpoints will be removed during that coordinated replacement.
+- Use Node.js 22 (`nvm use`). The branch has an isolated dependency tree and explicitly includes `@types/http-errors`. Full TypeScript checking still reports pre-existing image/blob/listing and test-mock typing errors; passing Jest tests alone does not clear that gate.
+- Verified: all 104 Inventory unit tests pass, the changed reservation service has 100% statements/branches/functions/lines, and eight PostgreSQL reservation checks cover aggregation, concurrent acceptance/replay, changed inputs and invalid expiry. Full purchase module coverage remains below its release threshold.

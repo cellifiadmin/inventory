@@ -19,7 +19,8 @@ export const reserveStockSchema = z.object({
         quantity: z.number().int().positive(),
       }),
     )
-    .min(1),
+    .min(1)
+    .refine(lines => new Set(lines.map(line => line.lineId)).size === lines.length, { message: 'Duplicate stock line identity' }),
 });
 
 export const commitStockSchema = z.object({
@@ -67,6 +68,7 @@ export type MovementRecord = {
 };
 
 export type InventoryStockTransaction = {
+  $queryRaw: typeof prismaInventory.$queryRaw;
   item: typeof prismaInventory.item;
   movement: typeof prismaInventory.movement;
 };
