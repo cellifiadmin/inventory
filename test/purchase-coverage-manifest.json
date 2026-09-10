@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "service": "inventory",
+  "sourcePrefixes": [
+    "src/inventory/services/stock",
+    "src/inventory/handlers/stock/",
+    "src/handlers/scheduled/stock-reservations/",
+    "src/services/stockService.ts"
+  ],
+  "includeTransitiveFirstPartyDependencies": true,
+  "requiredUnitCoverage": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  }
+}

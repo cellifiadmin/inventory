@@ -5,7 +5,7 @@
   "scripts": {
     "test": "jest --runInBand",
     "test:unit": "jest --runInBand test/unit",
-    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs",
+    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs test/unit/config/purchaseCoverageConfig.test.cjs",
     "ensure:sharp:lambda": "npm install --no-save --os=linux --cpu=x64 --libc=glibc sharp",
     "local:db:setup": "bash scripts/setup-local-db.sh",
     "test:db:setup": "bash scripts/setup-test-db.sh",
@@ -20,7 +20,12 @@
     "predeploy:dev": "npm run ensure:sharp:lambda",
     "deploy:dev": "AWS_PROFILE=default AWS_DEFAULT_PROFILE=default serverless deploy --stage development",
     "predeploy:prod": "npm run ensure:sharp:lambda",
-    "deploy:prod": "AWS_PROFILE=default AWS_DEFAULT_PROFILE=default serverless deploy --stage production"
+    "deploy:prod": "AWS_PROFILE=default AWS_DEFAULT_PROFILE=default serverless deploy --stage production",
+    "test:purchase:unit": "jest --runInBand --config jest.purchase-unit.config.cjs",
+    "test:purchase:integration": "jest --runInBand --config jest.purchase-integration.config.cjs",
+    "test:purchase:providers": "jest --runInBand --config jest.purchase-providers.config.cjs",
+    "test:purchase:regression": "jest --runInBand --config jest.purchase-regression.config.cjs",
+    "test:purchase:coverage": "npm run test:purchase:unit -- --coverage"
   },
   "prisma": {
     "seed": "echo 'Inventory service does not define a seed yet'"

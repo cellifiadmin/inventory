@@ -110,3 +110,11 @@ Cloud deploy contract:
 
 Known follow-up:
 - offers publication side effects are still mirrored locally through the replicated offer read model until the standalone `offers` service is extracted and wired end to end
+
+Purchase workflow implementation verification:
+
+- `npm run test:purchase:unit` runs scoped unit tests; `npm run test:purchase:coverage` enforces 100% statements, branches, functions and lines per executable module, including unloaded files and owned dependencies. Current coverage is below this release gate.
+- `npm run test:purchase:integration` uses only the isolated local inventory_test database and matching role, with fixture-owned cleanup. Direct invocation of the integration files applies the same target guard.
+- `npm run test:purchase:providers` is reserved for real provider acceptance; absence of tests is a failed gate, not evidence of successful integration. Unit fault injection does not satisfy it.
+- `npm run test:purchase:regression` isolates characterized runtime simulation failures. The implementation branch intentionally retains failing business regressions until their owning changes land.
+- Reports are separate under `coverage/purchase-*`; module selection is recorded in `test/purchase-coverage-manifest.json`. `npm run test:config` also verifies unloaded-module coverage and suite separation.
