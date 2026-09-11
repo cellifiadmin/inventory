@@ -1,11 +1,12 @@
+import type { reserveStock } from '@/inventory/services/stockReservationService';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { createHmac } from 'crypto';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-const mockReserveStock = jest.fn();
+const mockReserveStock = jest.fn<typeof reserveStock>();
 
 jest.mock('@/inventory/services/stockReservationService', () => ({
-  reserveStock: (...args: unknown[]) => mockReserveStock(...args),
+  reserveStock: (...args: Parameters<typeof reserveStock>) => mockReserveStock(...args),
 }));
 
 const buildEvent = (overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 =>

@@ -105,6 +105,10 @@ const createCentralizedListingPhotoBlob = async (
     throw createError(StatusCodes.BAD_REQUEST, 'Photo upload incomplete');
   }
 
+  if (!user.accountIdentifier) {
+    throw createError(StatusCodes.BAD_REQUEST, 'Photo invalid');
+  }
+
   assertOwnedInventoryPhotoAssetRef(assetRef, user.accountIdentifier);
 
   return persistBlobRecord({
@@ -152,16 +156,14 @@ export const generateDownloadUrl = async (blob: any) => {
   return getSigningS3().getSignedUrl('getObject', {
     Bucket: PRIVATE_BUCKET_NAME,
     Key: blob.key,
-    Expires: 60 * 5,
     ResponseContentDisposition: `attachment; filename="${filename}"`,
-  });
+  }, { expiresIn: 60 * 5 });
 };
 
 export const generatePreviewUrl = async (blob: any) => {
   return getSigningS3().getSignedUrl('getObject', {
     Bucket: PRIVATE_BUCKET_NAME,
     Key: blob.key,
-    Expires: 60 * 5,
     ResponseContentDisposition: `inline; filename="${blob.name}"`,
-  });
+  }, { expiresIn: 60 * 5 });
 };

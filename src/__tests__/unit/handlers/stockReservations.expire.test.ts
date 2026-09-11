@@ -1,9 +1,10 @@
+import type { expireStockReservations } from '@/inventory/services/stockReservationExpiryService';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-const mockExpireStockReservations = jest.fn();
+const mockExpireStockReservations = jest.fn<typeof expireStockReservations>();
 
 jest.mock('@/inventory/services/stockReservationExpiryService', () => ({
-  expireStockReservations: (...args: unknown[]) => mockExpireStockReservations(...args),
+  expireStockReservations: (...args: Parameters<typeof expireStockReservations>) => mockExpireStockReservations(...args),
 }));
 
 describe('stock reservation expiry handler', () => {

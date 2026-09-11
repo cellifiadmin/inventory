@@ -1,9 +1,10 @@
+import type { AccountAddress, Prisma } from '.prisma/inventoryClient';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 const mockPrismaInventory = {
   accountAddress: {
-    upsert: jest.fn(),
+    upsert: jest.fn<(args: Prisma.AccountAddressUpsertArgs) => Promise<AccountAddress>>(),
   },
 };
 
@@ -62,7 +63,7 @@ const buildEvent = ({
           }),
         },
       },
-    } as APIGatewayProxyEventV2['requestContext'],
+    },
     rawQueryString: '',
     isBase64Encoded: false,
   }) as unknown as APIGatewayProxyEventV2;

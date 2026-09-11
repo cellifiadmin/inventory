@@ -1,6 +1,8 @@
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
 
+import type { Prisma } from '@/lib/prismaInventoryTypes';
+
 import { buildRawObjectUrl } from '@/lib/objectStorage';
 import { blobKeyToCDNUrl } from '@/services/blobService/getCDNUrl';
 import {
@@ -47,6 +49,14 @@ type InventoryBlobRecord = {
   checksum: string;
   key: string;
   assetRef?: string | null;
+};
+
+export type InventoryPhotoTransaction = {
+  blob: {
+    findMany(args: Prisma.BlobFindManyArgs): Promise<InventoryBlobRecord[]>;
+    findFirst(args: Prisma.BlobFindFirstArgs): Promise<InventoryBlobRecord | null>;
+    create(args: Prisma.BlobCreateArgs): Promise<InventoryBlobRecord>;
+  };
 };
 
 const isPrismaUniqueConstraintError = (error: unknown): boolean =>
@@ -123,7 +133,7 @@ const assertOwnedInventoryBlobRecord = (
 };
 
 const persistInventoryBlobFromMetadata = async (
-  tx: any,
+  tx: InventoryPhotoTransaction,
   photo: InventoryPhotoInput & { key: string; assetRef: string },
 ) => {
   const keyParts = photo.key.split('/');
@@ -166,7 +176,7 @@ const persistInventoryBlobFromMetadata = async (
 };
 
 export const resolveInventoryPhotoBlobs = async (
-  tx: any,
+  tx: InventoryPhotoTransaction,
   sellerIdentifier: string,
   photos: InventoryPhotoInput[],
 ): Promise<InventoryBlobRecord[]> => {

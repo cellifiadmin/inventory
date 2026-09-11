@@ -5,13 +5,13 @@ import type { AuthUserType } from '@/types/userType';
 
 const mockPrismaInventory = {
   item: {
-    findFirst: jest.fn(),
+    findFirst: jest.fn<() => Promise<null>>(),
   },
   component: {
-    findFirst: jest.fn(),
+    findFirst: jest.fn<() => Promise<null>>(),
   },
   offersOffer: {
-    findFirst: jest.fn(),
+    findFirst: jest.fn<() => Promise<null>>(),
   },
   $transaction: jest.fn(),
 };
@@ -68,6 +68,7 @@ const user: AuthUserType = {
 };
 
 const buildCreatePayload = () => ({
+  quantity: 1,
   kind: ItemKind.LISTING,
   components: [
     {

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { INVENTORY_LISTING_PHOTO_USAGE } from '@/lib/objectStorage';
 import type { AuthUserType } from '@/types/userType';
 
+type StoredBlob = { id: number; key: string; checksum: string; assetRef: string };
+
 const mockPrismaInventory = {
   blob: {
-    findUnique: jest.fn(),
+    findUnique: jest.fn<(args: { where: { key?: string; assetRef?: string } }) => Promise<StoredBlob | null>>(),
     findFirst: jest.fn(),
-    create: jest.fn(),
+    create: jest.fn<() => Promise<StoredBlob>>(),
   },
 };
 

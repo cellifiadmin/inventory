@@ -5,13 +5,13 @@ import type { AuthUserType } from '@/types/userType';
 
 const mockPrismaInventory = {
   item: {
-    findUnique: jest.fn(),
+    findUnique: jest.fn<() => Promise<ReturnType<typeof createBoundaryItem>>>(),
   },
   $transaction: jest.fn(),
 };
 
-const mockCalculateRemainingQuantity = jest.fn();
-const mockEnqueueOffersImageSync = jest.fn();
+const mockCalculateRemainingQuantity = jest.fn<(...args: unknown[]) => Promise<number>>();
+const mockEnqueueOffersImageSync = jest.fn<(...args: unknown[]) => Promise<{ MessageId: string }>>();
 const mockBlobKeyToCDNUrl = jest.fn((key: string) => `https://cdn.dev.cellifi.com/${key}`);
 
 jest.mock('@/lib/prismaInventory', () => ({
@@ -118,22 +118,22 @@ describe('updateInventoryItemBoundary image sync', () => {
 
     const tx = {
       attachment: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({ count: 1 }),
-        findFirst: jest.fn().mockResolvedValue({ id: 901 }),
+        findMany: jest.fn(async (_args: unknown) => ([])),
+        createMany: jest.fn(async (_args: unknown) => ({ count: 1 })),
+        findFirst: jest.fn(async (_args: unknown) => ({ id: 901 })),
       },
       blob: {
-        findMany: jest.fn().mockResolvedValue([
+        findMany: jest.fn(async (_args: unknown) => ([
           {
             id: 900,
             checksum: 'request-photo',
             assetRef: 'inventory/items/acct-1/listing-photo/ph_request',
           },
-        ]),
+        ])),
       },
       item: {
-        update: jest.fn().mockResolvedValue({}),
-        findUniqueOrThrow: jest.fn().mockResolvedValue(committedItem),
+        update: jest.fn(async (_args: unknown) => ({})),
+        findUniqueOrThrow: jest.fn(async (_args: unknown) => (committedItem)),
       },
     };
 
@@ -223,11 +223,11 @@ describe('updateInventoryItemBoundary image sync', () => {
 
     const tx = {
       attachment: {
-        findFirst: jest.fn().mockResolvedValue({ id: secondaryPhoto.id }),
+        findFirst: jest.fn(async (_args: unknown) => ({ id: secondaryPhoto.id })),
       },
       item: {
-        update: jest.fn().mockResolvedValue({}),
-        findUniqueOrThrow: jest.fn().mockResolvedValue(committedItem),
+        update: jest.fn(async (_args: unknown) => ({})),
+        findUniqueOrThrow: jest.fn(async (_args: unknown) => (committedItem)),
       },
     };
 
@@ -303,12 +303,12 @@ describe('updateInventoryItemBoundary image sync', () => {
 
     const tx = {
       attachment: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({ count: 1 }),
-        findFirst: jest.fn().mockResolvedValue({ id: committedMainPhoto.id }),
+        findMany: jest.fn(async (_args: unknown) => ([])),
+        createMany: jest.fn(async (_args: unknown) => ({ count: 1 })),
+        findFirst: jest.fn(async (_args: unknown) => ({ id: committedMainPhoto.id })),
       },
       blob: {
-        findMany: jest.fn().mockResolvedValue([
+        findMany: jest.fn(async (_args: unknown) => ([
           {
             id: 900,
             checksum: 'shared-checksum',
@@ -321,11 +321,11 @@ describe('updateInventoryItemBoundary image sync', () => {
             key: 'products/acct-2/image/shared-checksum.jpeg',
             assetRef: 'inventory/items/acct-2/listing-photo/ph_shared',
           },
-        ]),
+        ])),
       },
       item: {
-        update: jest.fn().mockResolvedValue({}),
-        findUniqueOrThrow: jest.fn().mockResolvedValue(committedItem),
+        update: jest.fn(async (_args: unknown) => ({})),
+        findUniqueOrThrow: jest.fn(async (_args: unknown) => (committedItem)),
       },
     };
 
@@ -382,23 +382,23 @@ describe('updateInventoryItemBoundary image sync', () => {
 
     const tx = {
       attachment: {
-        findMany: jest.fn().mockResolvedValue([
+        findMany: jest.fn(async (_args: unknown) => ([
           {
             id: existingMainPhoto.id,
             blob: existingMainPhoto.blob,
           },
-        ]),
-        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
-        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        ])),
+        deleteMany: jest.fn(async (_args: unknown) => ({ count: 1 })),
+        createMany: jest.fn(async (_args: unknown) => ({ count: 0 })),
         findFirst: jest.fn(),
       },
       item: {
-        findUnique: jest.fn().mockResolvedValue({ mainImageId: existingMainPhoto.id }),
-        update: jest.fn().mockResolvedValue({}),
-        findUniqueOrThrow: jest.fn().mockResolvedValue(committedItem),
+        findUnique: jest.fn(async (_args: unknown) => ({ mainImageId: existingMainPhoto.id })),
+        update: jest.fn(async (_args: unknown) => ({})),
+        findUniqueOrThrow: jest.fn(async (_args: unknown) => (committedItem)),
       },
       blob: {
-        findMany: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn(async (_args: unknown) => ([])),
       },
     };
 

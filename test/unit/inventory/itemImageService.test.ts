@@ -4,6 +4,7 @@ import {
   assertOwnedInventoryPhotoAssetRef,
   buildInventorySnapshotPhoto,
   resolveInventoryPhotoBlobs,
+  type InventoryPhotoTransaction,
 } from '@/inventory/services/itemImageService';
 
 describe('itemImageService', () => {
@@ -59,8 +60,9 @@ describe('itemImageService', () => {
     const createCalls: Array<Record<string, unknown>> = [];
     const tx = {
       blob: {
-        findMany: jest.fn().mockResolvedValue([]),
-        create: jest.fn().mockImplementation(async ({ data }) => {
+        findFirst: jest.fn<InventoryPhotoTransaction['blob']['findFirst']>(),
+        findMany: jest.fn(async (_args: unknown) => ([])),
+        create: jest.fn<InventoryPhotoTransaction['blob']['create']>(async ({ data }) => {
           createCalls.push(data);
           return {
             id: 77,
@@ -108,14 +110,14 @@ describe('itemImageService', () => {
   it('reuses the raced assetRef row when blob persistence hits a uniqueness conflict', async () => {
     const tx = {
       blob: {
-        findMany: jest.fn().mockResolvedValue([]),
-        create: jest.fn().mockRejectedValue({ code: 'P2002' }),
-        findFirst: jest.fn().mockResolvedValue({
+        findMany: jest.fn(async (_args: unknown) => ([])),
+        create: jest.fn<InventoryPhotoTransaction['blob']['create']>().mockRejectedValue({ code: 'P2002' }),
+        findFirst: jest.fn(async (_args: unknown) => ({
           id: 88,
           checksum: 'photo-race',
           key: 'media/image/photo-race/original.jpeg',
           assetRef: 'inventory/items/acct-1/listing-photo/photo-race',
-        }),
+        })),
       },
     };
 
@@ -150,8 +152,9 @@ describe('itemImageService', () => {
   it('rejects newly uploaded photo metadata when assetRef is missing', async () => {
     const tx = {
       blob: {
-        findMany: jest.fn().mockResolvedValue([]),
-        create: jest.fn(),
+        findFirst: jest.fn<InventoryPhotoTransaction['blob']['findFirst']>(),
+        findMany: jest.fn(async (_args: unknown) => ([])),
+        create: jest.fn<InventoryPhotoTransaction['blob']['create']>(),
       },
     };
 

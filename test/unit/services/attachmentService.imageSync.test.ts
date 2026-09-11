@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockTx = {
   attachment: {
-    findFirst: jest.fn(),
-    findUnique: jest.fn(),
-    create: jest.fn(),
-    delete: jest.fn(),
+    findFirst: jest.fn<() => Promise<{ id: number } | null>>(),
+    findUnique: jest.fn<() => Promise<ReturnType<typeof createStoredAttachment> | null>>(),
+    create: jest.fn<() => Promise<ReturnType<typeof createStoredAttachment>>>(),
+    delete: jest.fn<() => Promise<ReturnType<typeof createStoredAttachment>>>(),
   },
   item: {
-    findUnique: jest.fn(),
+    findUnique: jest.fn<() => Promise<{ mainImageId: number | null } | null>>(),
     update: jest.fn(),
   },
 };

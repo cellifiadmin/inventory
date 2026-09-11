@@ -1,10 +1,11 @@
+import type { commitStock } from '@/inventory/services/stockCommitService';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-const mockCommitStock = jest.fn();
+const mockCommitStock = jest.fn<typeof commitStock>();
 
 jest.mock('@/inventory/services/stockCommitService', () => ({
-  commitStock: (...args: unknown[]) => mockCommitStock(...args),
+  commitStock: (...args: Parameters<typeof commitStock>) => mockCommitStock(...args),
 }));
 
 const buildEvent = (overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 =>

@@ -1,12 +1,20 @@
+import type { AccountAddress, Prisma } from '.prisma/inventoryClient';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+
+type AddressTransaction = {
+  accountAddress: {
+    updateMany(args: Prisma.AccountAddressUpdateManyArgs): Promise<{ count: number }>;
+    upsert(args: Prisma.AccountAddressUpsertArgs): Promise<object>;
+  };
+};
 
 const mockPrismaInventory = {
   accountAddress: {
-    findMany: jest.fn(),
-    upsert: jest.fn(),
-    updateMany: jest.fn(),
+    findMany: jest.fn<(args: Prisma.AccountAddressFindManyArgs) => Promise<AccountAddress[]>>(),
+    upsert: jest.fn<(args: Prisma.AccountAddressUpsertArgs) => Promise<AccountAddress>>(),
+    updateMany: jest.fn<(args: Prisma.AccountAddressUpdateManyArgs) => Promise<{ count: number }>>(),
   },
-  $transaction: jest.fn(),
+  $transaction: jest.fn<(callback: (tx: AddressTransaction) => Promise<void>) => Promise<void>>(),
 };
 
 jest.mock('@/lib/prismaInventory', () => ({
@@ -24,22 +32,10 @@ describe('accountAddressService coordinate ownership', () => {
     jest.clearAllMocks();
     process.env.GOOGLE_MAPS_API_KEY = 'test-google-maps-key';
     mockPrismaInventory.accountAddress.findMany.mockResolvedValue([]);
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: 'OK',
-        results: [
-          {
-            geometry: {
-              location: {
-                lat: 38.2527,
-                lng: -85.7585,
-              },
-            },
-          },
-        ],
-      }),
-    }) as any;
+    global.fetch = jest.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      status: 'OK',
+      results: [{ geometry: { location: { lat: 38.2527, lng: -85.7585 } } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
   });
 
   it('geocodes missing coordinates before saving an account address', async () => {
@@ -145,11 +141,11 @@ describe('accountAddressService coordinate ownership', () => {
   it('geocodes missing coordinates during approved-address provisioning', async () => {
     const tx = {
       accountAddress: {
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        upsert: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn<AddressTransaction['accountAddress']['updateMany']>().mockResolvedValue({ count: 0 }),
+        upsert: jest.fn<AddressTransaction['accountAddress']['upsert']>().mockResolvedValue({}),
       },
     };
-    mockPrismaInventory.$transaction.mockImplementation(async (callback: any) =>
+    mockPrismaInventory.$transaction.mockImplementation(async (callback) =>
       callback(tx)
     );
 

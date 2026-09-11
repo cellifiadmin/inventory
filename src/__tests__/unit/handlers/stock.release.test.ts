@@ -1,10 +1,11 @@
+import type { releaseStock } from '@/inventory/services/stockReleaseService';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-const mockReleaseStock = jest.fn();
+const mockReleaseStock = jest.fn<typeof releaseStock>();
 
 jest.mock('@/inventory/services/stockReleaseService', () => ({
-  releaseStock: (...args: unknown[]) => mockReleaseStock(...args),
+  releaseStock: (...args: Parameters<typeof releaseStock>) => mockReleaseStock(...args),
 }));
 
 const buildEvent = (overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 =>

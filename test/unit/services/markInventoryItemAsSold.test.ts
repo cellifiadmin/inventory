@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockPrismaInventory = {
   item: {
-    findUnique: jest.fn(),
+    findUnique: jest.fn<() => Promise<{ id: number; itemCode: string; sellerIdentifier: string; deletedAt: Date | null } | null>>(),
   },
 };
 
-const mockCalculateRemainingQuantity = jest.fn();
-const mockCreateStockMovement = jest.fn();
-const mockEnqueueOffersStockSync = jest.fn();
+const mockCalculateRemainingQuantity = jest.fn<(...args: unknown[]) => Promise<number>>();
+const mockCreateStockMovement = jest.fn<(...args: unknown[]) => Promise<{ id: number }>>();
+const mockEnqueueOffersStockSync = jest.fn<(...args: unknown[]) => Promise<{ MessageId: string }>>();
 
 jest.mock('@/lib/prismaInventory', () => ({
   __esModule: true,

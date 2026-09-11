@@ -6,7 +6,7 @@ jest.mock('@/inventory/services/markInventoryItemAsSold', () => ({
 
 const mockMarkInventoryItemAsSold =
   jest.mocked(
-    jest.requireMock('@/inventory/services/markInventoryItemAsSold')
+    jest.requireMock<typeof import('@/inventory/services/markInventoryItemAsSold')>('@/inventory/services/markInventoryItemAsSold')
       .markInventoryItemAsSold,
   );
 
@@ -43,6 +43,9 @@ describe('mark-as-sold handler', () => {
       {} as any,
     );
 
+    if (typeof response !== 'object' || response === null) {
+      throw new Error('Expected a structured API Gateway response');
+    }
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body as string)).toEqual(
       expect.objectContaining({
@@ -93,6 +96,9 @@ describe('mark-as-sold handler', () => {
       4,
       undefined,
     );
+    if (typeof response !== 'object' || response === null) {
+      throw new Error('Expected a structured API Gateway response');
+    }
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body as string)).toEqual(
       expect.objectContaining({

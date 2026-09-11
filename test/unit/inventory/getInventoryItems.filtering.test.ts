@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockPrismaInventory = {
   item: {
-    count: jest.fn(),
-    findMany: jest.fn(),
+    count: jest.fn<(_args: unknown) => Promise<number>>(),
+    findMany: jest.fn<(_args: unknown) => Promise<never[]>>(),
   },
   movement: {
-    groupBy: jest.fn(),
+    groupBy: jest.fn<(_args: unknown) => Promise<never[]>>(),
   },
 };
 

@@ -6,11 +6,11 @@ jest.mock('@/inventory/services/itemListingService', () => ({
 }));
 
 const mockGetInventoryItemCdnUrls = jest.mocked(
-  jest.requireMock('@/inventory/services/itemListingService')
+  jest.requireMock<typeof import('@/inventory/services/itemListingService')>('@/inventory/services/itemListingService')
     .getInventoryItemCdnUrls,
 );
 const mockGetInventoryItemsBatchCdnUrls = jest.mocked(
-  jest.requireMock('@/inventory/services/itemListingService')
+  jest.requireMock<typeof import('@/inventory/services/itemListingService')>('@/inventory/services/itemListingService')
     .getInventoryItemsBatchCdnUrls,
 );
 
@@ -56,6 +56,9 @@ describe('inventory attachments CDN cache control', () => {
       {} as any,
     );
 
+    if (typeof response !== 'object' || response === null) {
+      throw new Error('Expected a structured API Gateway response');
+    }
     expect(response.statusCode).toBe(200);
     expect(response.headers?.['Cache-Control']).toBe('no-store');
   });
@@ -73,6 +76,9 @@ describe('inventory attachments CDN cache control', () => {
       {} as any,
     );
 
+    if (typeof response !== 'object' || response === null) {
+      throw new Error('Expected a structured API Gateway response');
+    }
     expect(response.statusCode).toBe(200);
     expect(response.headers?.['Cache-Control']).toBe('no-store');
   });

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-const mockSend = jest.fn();
+const mockSend = jest.fn<(command: { input: Record<string, unknown> }) => Promise<{ MessageId: string }>>();
 const mockSendMessageCommand = jest.fn((input: Record<string, unknown>) => ({
   input,
 }));

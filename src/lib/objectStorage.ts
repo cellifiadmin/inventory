@@ -48,7 +48,11 @@ type ObjectStorageEnv = Partial<
 >;
 
 export type ObjectStorageClient = {
-  getSignedUrl(operation: 'getObject', input: GetObjectCommandInput): Promise<string>;
+  getSignedUrl(
+    operation: 'getObject',
+    input: GetObjectCommandInput,
+    options?: Parameters<typeof getSignedUrl>[2],
+  ): Promise<string>;
 };
 
 const trimToUndefined = (value?: string): string | undefined => {
@@ -113,12 +117,12 @@ export const createObjectStorageS3 = (
   const client = new S3Client(resolveObjectStorageClientConfig(env));
 
   return {
-    getSignedUrl: async (operation, input) => {
+    getSignedUrl: async (operation, input, options) => {
       if (operation !== 'getObject') {
         throw new Error(`Unsupported signed URL operation: ${operation}`);
       }
 
-      return getSignedUrl(client, new GetObjectCommand(input));
+      return getSignedUrl(client, new GetObjectCommand(input), options);
     },
   };
 };

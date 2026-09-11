@@ -9,13 +9,13 @@ import type { AuthUserType } from '@/types/userType';
 
 const mockPrismaInventory = {
   item: {
-    findUnique: jest.fn(),
+    findUnique: jest.fn<() => Promise<ReturnType<typeof createBoundaryItem>>>(),
   },
   $transaction: jest.fn(),
 };
 
-const mockCalculateRemainingQuantity = jest.fn();
-const mockEnqueueOffersStockSync = jest.fn();
+const mockCalculateRemainingQuantity = jest.fn<(...args: unknown[]) => Promise<number>>();
+const mockEnqueueOffersStockSync = jest.fn<(...args: unknown[]) => Promise<{ MessageId: string }>>();
 
 jest.mock('@/lib/prismaInventory', () => ({
   __esModule: true,
@@ -89,18 +89,18 @@ describe('updateInventoryItemBoundary zero-stock sync', () => {
   it('enqueues a delist message when an OUT adjustment moves stock to zero', async () => {
     const tx = {
       movement: {
-        findMany: jest.fn().mockResolvedValue([
+        findMany: jest.fn(async (_args: unknown) => ([
           {
             quantity: 1,
             direction: MovementDirection.IN,
           },
-        ]),
-        create: jest.fn().mockResolvedValue({
+        ])),
+        create: jest.fn(async (_args: unknown) => ({
           id: 321,
-        }),
+        })),
       },
       item: {
-        findUniqueOrThrow: jest.fn().mockResolvedValue(createBoundaryItem()),
+        findUniqueOrThrow: jest.fn(async (_args: unknown) => (createBoundaryItem())),
       },
     };
 

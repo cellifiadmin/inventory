@@ -199,19 +199,6 @@ const buildInventoryItemReadView = (
   images: item.images,
 });
 
-const buildSnapshotImageReadView = (
-  image: { checksum?: string | null; key?: string | null; name?: string | null } | null | undefined,
-) => {
-  if (!image?.key) {
-    return null;
-  }
-
-  return {
-    ...image,
-    previewUrl: blobKeyToCDNUrl(image.key),
-  };
-};
-
 const buildManageInventoryItemReadView = (
   item: BoundaryItem,
 ) => ({
@@ -266,46 +253,6 @@ const buildManageInventoryItemListReadView = async (
   mainImage: await buildManageInventoryItemMainImageReadView(item.mainImage),
   aggregation,
 });
-
-const buildOfferBackedInventoryItemReadView = (
-  offer: Pick<OfferBrowseBoundary, 'addressState' | 'addressCountry' | 'itemCode' | 'sellerIdentifier' | 'invSnapshot'>,
-  inventoryItemId: number | null,
-) => {
-  const snapshot =
-    offer.invSnapshot && typeof offer.invSnapshot === 'object'
-      ? (offer.invSnapshot as Record<string, any>)
-      : null;
-
-  if (!snapshot) {
-    return null;
-  }
-
-  return {
-    id: inventoryItemId,
-    kind: snapshot.kind ?? ItemKind.STOCK,
-    status: null,
-    createdAt: null,
-    updatedAt: null,
-    deletedAt: null,
-    mainImageId: null,
-    sellerIdentifier: offer.sellerIdentifier ?? null,
-    code: offer.itemCode ?? snapshot.code ?? null,
-    region: buildOfferBackedRegion(offer),
-    components: Array.isArray(snapshot.components)
-      ? snapshot.components.map((component: Record<string, any>) => ({
-          ...component,
-          quantity: component.count ?? 1,
-          product: component.productSnapshot ?? null,
-        }))
-      : [],
-    mainImage: buildSnapshotImageReadView(snapshot.mainPhoto),
-    images: Array.isArray(snapshot.photos)
-      ? snapshot.photos
-          .map((photo: Record<string, any>) => buildSnapshotImageReadView(photo))
-          .filter((photo): photo is NonNullable<typeof photo> => photo != null)
-      : [],
-  };
-};
 
 const getItemByBoundary = async (
   sellerIdentifier: string | null | undefined,

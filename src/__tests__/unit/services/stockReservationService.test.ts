@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-const mockItemFindUnique = jest.fn();
-const mockMovementFindMany = jest.fn();
-const mockMovementCreate = jest.fn();
-const mockTransaction = jest.fn();
+const mockItemFindUnique = jest.fn<(...args: unknown[]) => Promise<{ id: number; deletedAt: Date | null } | null>>();
+const mockMovementFindMany = jest.fn<(...args: unknown[]) => Promise<Array<{ id: number; itemId: number; quantity: number; direction: string; reason: string; metadata: Record<string, unknown> }>>>();
+const mockMovementCreate = jest.fn<(...args: unknown[]) => Promise<{ id: number }>>();
+type MockTransaction = {
+  $queryRaw: typeof mockQueryRaw;
+  item: { findUnique: typeof mockItemFindUnique };
+  movement: { findMany: typeof mockMovementFindMany; create: typeof mockMovementCreate };
+};
+const mockTransaction = jest.fn<(callback: (tx: MockTransaction) => Promise<unknown>) => Promise<unknown>>();
 const mockQueryRaw = jest.fn<(parts: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>>();
 
 jest.mock('@/lib/prismaInventory', () => ({
@@ -16,7 +21,7 @@ jest.mock('@/lib/prismaInventory', () => ({
       findMany: (...args: unknown[]) => mockMovementFindMany(...args),
       create: (...args: unknown[]) => mockMovementCreate(...args),
     },
-    $transaction: (...args: unknown[]) => mockTransaction(...args),
+    $transaction: (...args: Parameters<typeof mockTransaction>) => mockTransaction(...args),
   },
 }));
 
@@ -29,7 +34,7 @@ describe('stock reservation services', () => {
       parts.join('').includes('clock_timestamp') ? [{ now: new Date('2026-08-03T18:30:00.000Z') }]
         : parts.join('').includes('FROM items') ? [{ id: values[0] }] : []);
 
-    mockTransaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) =>
+    mockTransaction.mockImplementation(async (callback: (tx: MockTransaction) => Promise<unknown>) =>
       callback({
         $queryRaw: mockQueryRaw,
         item: {
