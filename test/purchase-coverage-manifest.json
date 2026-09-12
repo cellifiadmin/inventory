@@ -3,9 +3,13 @@
   "service": "inventory",
   "sourcePrefixes": [
     "src/inventory/services/stock",
-    "src/inventory/handlers/stock/",
     "src/handlers/scheduled/stock-reservations/",
-    "src/services/stockService.ts"
+    "src/services/stockService.ts",
+    "src/inventory/services/reservationProtectionService.ts",
+    "src/inventory/services/workflows/",
+    "src/inventory/types/inventoryWorkflowEnvelope.ts",
+    "src/handlers/sqs/reservation-operations/",
+    "src/handlers/scheduled/reservation-results/"
   ],
   "includeTransitiveFirstPartyDependencies": true,
   "requiredUnitCoverage": {

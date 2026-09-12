@@ -1,3 +1,4 @@
+import { reservationResponse } from '../../../../test/helpers/reservationFixtures';
 import type { expireStockReservations } from '@/inventory/services/stockReservationExpiryService';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
@@ -17,8 +18,8 @@ describe('stock reservation expiry handler', () => {
     mockExpireStockReservations.mockResolvedValue({
       expiredReservationCount: 2,
       lines: [
-        { lineId: 'ln_1', reservedMovementId: 11, cause: 'expired' },
-        { lineId: 'ln_2', reservedMovementId: 12, cause: 'expired' },
+        { ...reservationResponse('EXPIRED').lines[0], reservationId: 'first', lineId: 'ln_1' },
+        { ...reservationResponse('EXPIRED').lines[0], reservationId: 'second', lineId: 'ln_2' },
       ],
     });
 
@@ -29,8 +30,8 @@ describe('stock reservation expiry handler', () => {
     await expect(handler()).resolves.toEqual({
       expiredReservationCount: 2,
       lines: [
-        { lineId: 'ln_1', reservedMovementId: 11, cause: 'expired' },
-        { lineId: 'ln_2', reservedMovementId: 12, cause: 'expired' },
+        { ...reservationResponse('EXPIRED').lines[0], reservationId: 'first', lineId: 'ln_1' },
+        { ...reservationResponse('EXPIRED').lines[0], reservationId: 'second', lineId: 'ln_2' },
       ],
     });
     expect(mockExpireStockReservations).toHaveBeenCalledWith();

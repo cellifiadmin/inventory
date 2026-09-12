@@ -1,105 +1,32 @@
-import prismaInventory from '@/lib/prismaInventory';
+import { ReservationState, ReservationOperationKind, STOCK_RESERVATION_EXPIRY_BATCH_SIZE } from '@/constants/reservations';
 import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
-import {
-  buildLineMetadataFilter,
-  buildReservedMovementIdFilter,
-  getMetadataDate,
-  getMetadataNumber,
-  getMetadataString,
-  type InventoryStockTransaction,
-  type MovementRecord,
-} from '@/inventory/services/stockReservationShared';
+import prismaInventory from '@/lib/prismaInventory';
+import { databaseNow, executeReservationOperation, loadReservationLines, reservationResult, updateReservation, withStockTransaction } from '@/inventory/services/stockReservationShared';
 
-const isExpiredReservation = (movement: MovementRecord, now: Date): boolean => {
-  const expiresAt = getMetadataDate(movement.metadata, 'expiresAt');
-  return !!expiresAt && expiresAt.getTime() <= now.getTime();
-};
-
-const hasReleaseForReservation = async (
-  tx: InventoryStockTransaction,
-  reservedMovementId: number,
-): Promise<boolean> => {
-  const relatedClosures = await tx.movement.findMany({
-    where: {
-      reason: {
-        in: [MovementReason.RELEASED, MovementReason.SOLD],
-      },
-      AND: [buildReservedMovementIdFilter(reservedMovementId)],
-    },
+export const expireStockReservations = async () => {
+  const now = await withStockTransaction(databaseNow);
+  const candidates = await prismaInventory.stockReservation.findMany({
+    where: { state: ReservationState.HELD, expiresAt: { lte: now } }, orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }], take: STOCK_RESERVATION_EXPIRY_BATCH_SIZE,
   });
-
-  return relatedClosures.length > 0;
-};
-
-export const expireStockReservations = async (input?: { now?: Date }) => {
-  const now = input?.now ?? new Date();
-
-  return prismaInventory.$transaction(async (tx) => {
-    const reservedMovements = (await tx.movement.findMany({
-      where: {
-        reason: MovementReason.RESERVED,
-      },
-      orderBy: { id: 'asc' },
-    })) as MovementRecord[];
-
-    const expiredResults: Array<{ lineId: string; reservedMovementId: number; cause: 'expired' }> =
-      [];
-
-    for (const reservedMovement of reservedMovements) {
-      if (!isExpiredReservation(reservedMovement, now)) {
-        continue;
-      }
-
-      if (await hasReleaseForReservation(tx, reservedMovement.id)) {
-        continue;
-      }
-
-      const checkoutId = getMetadataString(reservedMovement.metadata, 'checkoutId');
-      const version = getMetadataNumber(reservedMovement.metadata, 'version');
-      const lineId = getMetadataString(reservedMovement.metadata, 'lineId');
-
-      if (!checkoutId || version === null || !lineId) {
-        continue;
-      }
-
-      const duplicateExpiryRelease = await tx.movement.findMany({
-        where: {
-          reason: MOVEMENT_REASON_RELEASED,
-          AND: buildLineMetadataFilter({ checkoutId, version, lineId }),
-        },
+  const lines = [];
+  for (const candidate of candidates) {
+    const input = { operationId: `expiry:${candidate.id}:${candidate.revision}`, checkoutId: candidate.checkoutId,
+      version: candidate.checkoutVersion, lines: [{ reservationId: candidate.id, lineId: candidate.lineId, revision: candidate.revision }] };
+    try {
+      const result = await executeReservationOperation(ReservationOperationKind.EXPIRE, input, async tx => {
+        const [record] = await loadReservationLines(tx, input);
+        const currentTime = await databaseNow(tx);
+        if (record.state !== ReservationState.HELD || record.expiresAt > currentTime) return reservationResult(input.checkoutId, input.version, [record]);
+        const movement = await tx.movement.create({ data: { itemId: record.itemId,
+          quantity: record.heldMovement.quantity, direction: MovementDirection.IN, reason: MovementReason.RELEASED } });
+        const expired = await updateReservation(tx, record, { state: ReservationState.EXPIRED, releasedMovementId: movement.id, releaseCause: 'expired' });
+        return reservationResult(input.checkoutId, input.version, [expired]);
       });
-
-      if (duplicateExpiryRelease.length > 0) {
-        continue;
-      }
-
-      await tx.movement.create({
-        data: {
-          itemId: reservedMovement.itemId,
-          quantity: reservedMovement.quantity,
-          direction: MovementDirection.IN,
-          reason: MOVEMENT_REASON_RELEASED,
-          metadata: {
-            checkoutId,
-            version,
-            lineId,
-            reservedMovementId: reservedMovement.id,
-            cause: 'expired',
-          },
-        },
-      });
-
-      expiredResults.push({
-        lineId,
-        reservedMovementId: reservedMovement.id,
-        cause: 'expired',
-      });
+      lines.push(...result.lines.filter(line => line.state === ReservationState.EXPIRED));
+    } catch (error) {
+      // A protection/terminal transition that won the item lock invalidates this scan candidate.
+      if (!(error instanceof Error) || error.message !== 'Reservation revision stale') throw error;
     }
-
-    return {
-      expiredReservationCount: expiredResults.length,
-      lines: expiredResults,
-    };
-  });
+  }
+  return { expiredReservationCount: lines.length, lines };
 };
-const MOVEMENT_REASON_RELEASED = 'RELEASED' as typeof MovementReason.SOLD;

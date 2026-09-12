@@ -17,6 +17,8 @@ describe('reservation quantity invariants against PostgreSQL', () => {
   });
   afterEach(async () => {
     if (itemId) {
+      await prisma.stockReservation.deleteMany({ where: { itemId } });
+      await prisma.reservationOperation.deleteMany({ where: { checkoutId: { startsWith: itemCode } } });
       await prisma.movement.deleteMany({ where: { itemId } });
       await prisma.item.delete({ where: { id: itemId } });
     }
@@ -26,38 +28,38 @@ describe('reservation quantity invariants against PostgreSQL', () => {
     .reduce((sum, movement) => sum + (movement.direction === 'IN' ? movement.quantity : -movement.quantity), 0);
 
   it('rejects two lines whose combined quantity exceeds the same item stock', async () => {
-    await expect(reserveStock({ checkoutId: itemCode, version: 4, lines: [
+    await expect(reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 4, lines: [
       { lineId: 'a', accountId: seller, sourceInvId: itemCode, quantity: 1 },
       { lineId: 'b', accountId: seller, sourceInvId: itemCode, quantity: 1 },
-    ] })).rejects.toThrow(`Insufficient inventory available for ${itemCode}`);
+    ] })).rejects.toThrow('Insufficient inventory available');
     expect(await balance()).toBe(1);
   });
 
   it('allows at most one of two concurrent checkouts to reserve the last unit', async () => {
     const attempts = await Promise.allSettled(['a', 'b'].map((suffix) => reserveStock({
-      checkoutId: `${itemCode}-${suffix}`, version: 1,
+      operationId: randomUUID(), checkoutId: `${itemCode}-${suffix}`, version: 1,
       lines: [{ lineId: suffix, accountId: seller, sourceInvId: itemCode, quantity: 1 }],
     })));
     expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(1);
     expect(await balance()).toBe(0);
   });
   it('rejects repeated line identities before reserving any stock', async () => {
-    await expect(reserveStock({ checkoutId: itemCode, version: 1, lines: [
+    await expect(reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 1, lines: [
       { lineId: 'same', accountId: seller, sourceInvId: itemCode, quantity: 1 },
       { lineId: 'same', accountId: seller, sourceInvId: itemCode, quantity: 1 },
     ] })).rejects.toThrow('Duplicate stock line identity');
     expect(await balance()).toBe(1);
   });
   it('rejects a changed quantity when replaying a reserved line', async () => {
-    const input = { checkoutId: itemCode, version: 1,
+    const input = { operationId: randomUUID(), checkoutId: itemCode, version: 1,
       lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 1 }] };
     await reserveStock(input);
     await expect(reserveStock({ ...input, lines: [{ ...input.lines[0], quantity: 2 }] }))
-      .rejects.toThrow('Reservation input changed for line');
+      .rejects.toThrow('Reservation operation input changed');
     expect(await balance()).toBe(0);
   });
   it('serializes concurrent replay of the same checkout and line', async () => {
-    const input = { checkoutId: itemCode, version: 1,
+    const input = { operationId: randomUUID(), checkoutId: itemCode, version: 1,
       lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 1 }] };
     const results = await Promise.all([1, 2].map(() => reserveStock(input)));
     expect(results[0]).toEqual(results[1]);
@@ -66,22 +68,20 @@ describe('reservation quantity invariants against PostgreSQL', () => {
   });
   it('accepts multiple lines for one item when their combined quantity is available', async () => {
     await prisma.movement.create({ data: { itemId, direction: 'IN', reason: 'ADJUSTMENT', quantity: 1 } });
-    await reserveStock({ checkoutId: itemCode, version: 1, lines: [
+    await reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 1, lines: [
       { lineId: 'a', accountId: seller, sourceInvId: itemCode, quantity: 1 },
       { lineId: 'b', accountId: seller, sourceInvId: itemCode, quantity: 1 },
     ] });
     expect(await balance()).toBe(0);
   });
 
-  it.each([{}, { expiresAt: '2000-01-01T00:00:00.000Z' }])('does not invent expiry when replaying an invalid or expired hold %p', async expiry => {
-    const input = { checkoutId: itemCode, version: 1,
+  it('rejects a new reserve operation for an expired typed hold without extending it', async () => {
+    const input = { operationId: randomUUID(), checkoutId: itemCode, version: 1,
       lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 1 }] };
-    await reserveStock(input);
-    await prisma.movement.updateMany({ where: { itemId, reason: 'RESERVED' }, data: {
-      metadata: { checkoutId: itemCode, version: 1, lineId: 'line', ...expiry },
-    } });
-    await expect(reserveStock(input)).rejects.toThrow('Reservation expiry invalid or elapsed for line');
+    const original = await reserveStock(input);
+    await prisma.stockReservation.update({ where: { id: original.lines[0].reservationId }, data: { expiresAt: new Date('2000-01-01') } });
+    await expect(reserveStock({ ...input, operationId: randomUUID() })).rejects.toThrow('Reservation is no longer an active hold');
+    expect(await reserveStock(input)).toEqual(original);
     expect(await balance()).toBe(0);
   });
-
 });

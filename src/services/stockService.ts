@@ -2,6 +2,7 @@ import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
 
 import prismaInventory from '@/lib/prismaInventory';
+import { lockStockItems, stockBalance, withStockTransaction, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
 import {
   MovementDirection,
   MovementReason,
@@ -71,29 +72,21 @@ export interface CreateStockMovementInput {
   createdBy?: number;
 }
 
-export const createStockMovement = async (input: CreateStockMovementInput) => {
+export const createStockMovement = async (input: CreateStockMovementInput, transaction?: InventoryStockTransaction) => {
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
     throw createError(StatusCodes.BAD_REQUEST, 'Invalid quantity');
   }
 
-  if (input.direction === MovementDirection.OUT) {
-    const currentQuantity = await calculateRemainingQuantity(input.itemId);
-
-    if (currentQuantity < input.quantity) {
+  return withStockTransaction(async tx => {
+    await lockStockItems(tx, [input.itemId]);
+    if (input.direction === MovementDirection.OUT && await stockBalance(tx, input.itemId) < input.quantity) {
       throw createError(StatusCodes.BAD_REQUEST, 'Insufficient inventory available');
     }
-  }
-
-  return prismaInventory.movement.create({
-    data: {
-      itemId: input.itemId,
-      quantity: input.quantity,
-      direction: input.direction,
-      reason: input.reason,
-      metadata: input.metadata ?? Prisma.JsonNull,
-      createdBy: input.createdBy ?? null,
-    },
-  });
+    return tx.movement.create({ data: {
+      itemId: input.itemId, quantity: input.quantity, direction: input.direction, reason: input.reason,
+      metadata: input.metadata ?? Prisma.JsonNull, createdBy: input.createdBy ?? null,
+    } });
+  }, transaction);
 };
 
 export const getStockMovements = async (itemId: number) => {

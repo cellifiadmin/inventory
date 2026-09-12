@@ -1,191 +1,57 @@
+import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
+import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
-
-import prismaInventory from '@/lib/prismaInventory';
-import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
+import { reserveStockSchema, type ReserveStockInput } from '@/inventory/types/stockReservationCommands';
 import {
-  assertLineNotCommitted,
-  assertPositiveAvailableUnits,
-  buildLineMetadataFilter,
-  calculateMovementBalance,
-  getMetadataDate,
-  isReservationActive,
-  reserveStockSchema,
-  resolveStockReservationTimeoutMinutes,
-  type InventoryStockTransaction,
-  type MovementRecord,
-  type ReserveStockInput,
+  databaseNow, executeReservationOperation, lockStockItems, reservationResult,
+  resolveStockReservationTimeoutMinutes, stockBalance, type InventoryStockTransaction,
 } from '@/inventory/services/stockReservationShared';
 
-const resolveReservationExpiry = (now: Date): Date => {
-  const timeoutMinutes = resolveStockReservationTimeoutMinutes();
-  return new Date(now.getTime() + timeoutMinutes * 60 * 1000);
-};
-
-const getItemByBoundary = async (
-  tx: InventoryStockTransaction,
-  accountId: string,
-  sourceInvId: string,
-) => {
-  const item = await tx.item.findUnique({
-    where: {
-      sellerIdentifier_itemCode: {
-        sellerIdentifier: accountId,
-        itemCode: sourceInvId,
-      },
-    },
-    select: {
-      id: true,
-      deletedAt: true,
-    },
-  });
-
-  if (!item || item.deletedAt) {
-    throw createError(StatusCodes.NOT_FOUND, `Inventory item not found for ${sourceInvId}`);
-  }
-
-  return item;
-};
-
-const getLineScopedMovements = async (
-  tx: InventoryStockTransaction,
-  input: { checkoutId: string; version: number; lineId: string },
-): Promise<{
-  reservedMovements: MovementRecord[];
-  releaseMovements: MovementRecord[];
-  soldMovements: MovementRecord[];
-}> => {
-  const [reservedMovements, releaseMovements, soldMovements] = await Promise.all([
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.RESERVED,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.RELEASED,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.SOLD,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-  ]);
-
-  return {
-    reservedMovements: (reservedMovements ?? []) as MovementRecord[],
-    releaseMovements: (releaseMovements ?? []) as MovementRecord[],
-    soldMovements: (soldMovements ?? []) as MovementRecord[],
-  };
-};
-
-export const reserveStock = async (rawInput: ReserveStockInput) => {
+export const reserveStock = async (rawInput: ReserveStockInput, transaction?: InventoryStockTransaction) => {
   const input = reserveStockSchema.parse(rawInput);
-
-  return prismaInventory.$transaction(async (tx) => {
-    const scope = JSON.stringify(['inventory-reservation', input.checkoutId, input.version]);
-    await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${scope}, 0))`;
+  return executeReservationOperation(ReservationOperationKind.RESERVE, input, async tx => {
     const resolved = [];
     for (const line of input.lines) {
-      resolved.push({ line, item: await getItemByBoundary(tx, line.accountId, line.sourceInvId) });
+      const item = await tx.item.findUnique({ where: { sellerIdentifier_itemCode: {
+        sellerIdentifier: line.accountId, itemCode: line.sourceInvId,
+      } }, select: { id: true, deletedAt: true } });
+      if (!item || item.deletedAt) throw createError(StatusCodes.NOT_FOUND, `Inventory item not found for ${line.sourceInvId}`);
+      resolved.push({ line, item });
     }
-    const distinctItems = new Map(resolved.map(value => [value.item.id, value]));
-    for (const { line, item } of [...distinctItems.values()].sort((a, b) => a.item.id - b.item.id)) {
-      const locked = await tx.$queryRaw<Array<{ id: number }>>`
-        SELECT id FROM items WHERE id = ${item.id} AND deleted_at IS NULL FOR UPDATE`;
-      if (locked.length !== 1) throw createError(StatusCodes.NOT_FOUND, `Inventory item not found for ${line.sourceInvId}`);
-    }
-    const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
-    const expiresAt = resolveReservationExpiry(now);
-    const linesToCreate: Array<{
-      itemId: number;
-      lineId: string;
-      quantity: number;
-    }> = [];
-    let existingReservationExpiry: Date | null = null;
-
-    const pendingQuantityByItem = new Map<number, number>();
-    for (const { line, item } of resolved) {
-      const [itemMovements, lineScopedMovements] = await Promise.all([
-        tx.movement.findMany({
-          where: {
-            itemId: item.id,
-          },
-        }),
-        getLineScopedMovements(tx, {
-          checkoutId: input.checkoutId,
-          version: input.version,
-          lineId: line.lineId,
-        }),
-      ]);
-
-      assertLineNotCommitted(lineScopedMovements.soldMovements, line.lineId);
-
-      const activeReservation = lineScopedMovements.reservedMovements.find((movement) =>
-        isReservationActive({
-          reservedMovementId: movement.id,
-          releaseMovements: lineScopedMovements.releaseMovements,
-          soldMovements: lineScopedMovements.soldMovements,
-        }),
-      );
-
-      if (activeReservation) {
-        if (activeReservation.itemId !== item.id || activeReservation.quantity !== line.quantity) {
+    await lockStockItems(tx, resolved.map(value => value.item.id));
+    const now = await databaseNow(tx);
+    const expiresAt = new Date(now.getTime() + resolveStockReservationTimeoutMinutes() * 60000);
+    const existing = await tx.stockReservation.findMany({ where: {
+      checkoutId: input.checkoutId, checkoutVersion: input.version,
+    }, include: { heldMovement: true } });
+    // A checkout version has one immutable line set, even when a different command ID is used.
+    if (existing.length > 0) {
+      if (existing.length !== input.lines.length) throw createError(StatusCodes.CONFLICT, 'Reservation line set changed');
+      const records = resolved.map(({ line, item }) => {
+        const record = existing.find(value => value.lineId === line.lineId);
+        if (!record || record.itemId !== item.id || record.heldMovement.quantity !== line.quantity) {
           throw createError(StatusCodes.CONFLICT, `Reservation input changed for ${line.lineId}`);
         }
-        const activeExpiry = getMetadataDate(activeReservation.metadata, 'expiresAt');
-        if (!activeExpiry || activeExpiry <= now) {
-          throw createError(StatusCodes.CONFLICT, `Reservation expiry invalid or elapsed for ${line.lineId}`);
-        }
-        if (existingReservationExpiry === null || activeExpiry < existingReservationExpiry) existingReservationExpiry = activeExpiry;
-        continue;
-      }
-
-      const availableUnits = calculateMovementBalance(itemMovements as MovementRecord[]);
-      const requestedQuantity = (pendingQuantityByItem.get(item.id) ?? 0) + line.quantity;
-      assertPositiveAvailableUnits(availableUnits, requestedQuantity, line.sourceInvId);
-      pendingQuantityByItem.set(item.id, requestedQuantity);
-
-      linesToCreate.push({
-        itemId: item.id,
-        lineId: line.lineId,
-        quantity: line.quantity,
+        if (record.state !== ReservationState.HELD || record.expiresAt <= now) throw createError(StatusCodes.CONFLICT, 'Reservation is no longer an active hold');
+        return record;
       });
+      return reservationResult(input.checkoutId, input.version, records);
     }
-
-    for (const line of linesToCreate) {
-      await tx.movement.create({
-        data: {
-          itemId: line.itemId,
-          quantity: line.quantity,
-          direction: MovementDirection.OUT,
-          reason: MovementReason.RESERVED,
-          metadata: {
-            checkoutId: input.checkoutId,
-            version: input.version,
-            lineId: line.lineId,
-            expiresAt: expiresAt.toISOString(),
-          },
-        },
-      });
+    const quantities = new Map<number, number>();
+    for (const { line, item } of resolved) quantities.set(item.id, (quantities.get(item.id) ?? 0) + line.quantity);
+    for (const [itemId, quantity] of quantities) {
+      if (await stockBalance(tx, itemId) < quantity) throw createError(StatusCodes.CONFLICT, 'Insufficient inventory available');
     }
-
-    if (existingReservationExpiry && linesToCreate.length > 0 && expiresAt < existingReservationExpiry) {
-      existingReservationExpiry = expiresAt;
+    const records = [];
+    for (const { line, item } of resolved) {
+      const movement = await tx.movement.create({ data: { itemId: item.id, quantity: line.quantity,
+        direction: MovementDirection.OUT, reason: MovementReason.RESERVED } });
+      records.push(await tx.stockReservation.create({ data: {
+        checkoutId: input.checkoutId, checkoutVersion: input.version, lineId: line.lineId,
+        itemId: item.id, heldMovementId: movement.id, expiresAt,
+      }, include: { heldMovement: true } }));
     }
-    return {
-      expiresAt: (existingReservationExpiry ?? expiresAt).toISOString(),
-      lines: input.lines.map((line) => ({
-        lineId: line.lineId,
-        quantity: line.quantity,
-      })),
-    };
-  });
+    return reservationResult(input.checkoutId, input.version, records);
+  }, transaction);
 };

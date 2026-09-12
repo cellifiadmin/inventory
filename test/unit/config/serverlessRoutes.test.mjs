@@ -20,9 +20,6 @@ const expectRoute = (routePath, method) => {
 
 test('inventory exposes the extracted inventory API surface', () => {
   expectRoute('/inventory/media-grants', 'post');
-  expectRoute('/stock/reserve', 'post');
-  expectRoute('/stock/commit', 'post');
-  expectRoute('/stock/release', 'post');
   expectRoute('/inventory/items/{id}/edit', 'get');
   expectRoute('/inventory/items/{id}/images', 'get');
   expectRoute('/inventory/items/{id}/main-image', 'get');
@@ -65,4 +62,36 @@ test('inventory defines the short internal approved-address sync function name',
     /name:\s*\$\{self:service\}-\$\{self:provider\.stage\}-sync-approved-addresses/
   );
   assert.doesNotMatch(serverlessConfig, /provision-approved-account-addresses/);
+});
+
+
+test('reservation mutations use one Standard SQS consumer and bounded scheduled delivery', () => {
+  assert.match(serverlessConfig, /runtime: nodejs22.x/);
+  const scripts = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts;
+  assert.equal(scripts.dev, 'bash scripts/run-local-workflow.sh');
+  assert.equal(scripts.local, 'bash scripts/run-local-workflow.sh');
+  assert.equal((serverlessConfig.match(/rate: rate\(1 minute\)/g) || []).length, 2);
+  assert.doesNotMatch(serverlessConfig, /path:\s*\/stock\//);
+  assert.doesNotMatch(serverlessConfig, /INTERNAL_SERVICE_REQUEST_SIGNING_SECRET/);
+  assert.match(serverlessConfig, /processReservationCommands:[\s\S]*?handler: src\/handlers\/sqs\/reservation-operations\/process.handler/);
+  assert.equal((serverlessConfig.match(/functionResponseType: ReportBatchItemFailures/g) || []).length, 2);
+  assert.match(serverlessConfig, /publishReservationResults:[\s\S]*?handler: src\/handlers\/scheduled\/reservation-results\/publish.handler/);
+  assert.ok(serverlessConfig.indexOf('  - serverless-offline\n') < serverlessConfig.indexOf('  - serverless-offline-sqs'));
+});
+
+test('every stage has all twelve canonical workflow queue bindings', () => {
+  const keys = ['COMMERCE_COMMAND_QUEUE_URL', 'COMMERCE_COMMAND_QUEUE_ARN', 'COMMERCE_COMMAND_QUEUE_DLQ_URL', 'COMMERCE_COMMAND_QUEUE_DLQ_ARN',
+    'FULFILLMENT_COMMAND_QUEUE_URL', 'FULFILLMENT_COMMAND_QUEUE_ARN', 'FULFILLMENT_COMMAND_QUEUE_DLQ_URL', 'FULFILLMENT_COMMAND_QUEUE_DLQ_ARN',
+    'COMMERCE_RESULT_QUEUE_URL', 'COMMERCE_RESULT_QUEUE_ARN', 'FULFILLMENT_RESULT_QUEUE_URL', 'FULFILLMENT_RESULT_QUEUE_ARN'];
+  for (const stage of ['local', 'development', 'dev', 'test', 'production']) {
+    const runtime = readFileSync(path.join(repoRoot, `serverless.runtime.${stage}.yml`), 'utf8');
+    for (const key of keys) {
+      assert.match(runtime, new RegExp(`^${key}:`, 'm'));
+      assert.match(serverlessConfig, new RegExp(`^    ${key}:`, 'm'));
+      if (stage !== 'local') {
+        const workspace = stage === 'production' ? 'prod' : stage === 'test' ? 'test' : 'dev';
+        assert.ok(runtime.includes(`/cellifi/${workspace}/inventory/runtime/${key.toLowerCase().replaceAll('_', '-')}`));
+      }
+    }
+  }
 });

@@ -5,7 +5,7 @@ useDotenv: true
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'local'}
   region: us-east-1
   versionFunctions: false
@@ -28,7 +28,21 @@ provider:
             - "sqs:SendMessage"
           Resource:
             - ${self:custom.inventoryRuntimeByStage.OFFERS_STOCK_SYNC_QUEUE_ARN}
+            - ${self:custom.inventoryRuntimeByStage.COMMERCE_RESULT_QUEUE_ARN}
+            - ${self:custom.inventoryRuntimeByStage.FULFILLMENT_RESULT_QUEUE_ARN}
   environment:
+    COMMERCE_COMMAND_QUEUE_URL: ${self:custom.inventoryRuntimeByStage.COMMERCE_COMMAND_QUEUE_URL}
+    COMMERCE_COMMAND_QUEUE_ARN: ${self:custom.inventoryRuntimeByStage.COMMERCE_COMMAND_QUEUE_ARN}
+    COMMERCE_COMMAND_QUEUE_DLQ_URL: ${self:custom.inventoryRuntimeByStage.COMMERCE_COMMAND_QUEUE_DLQ_URL}
+    COMMERCE_COMMAND_QUEUE_DLQ_ARN: ${self:custom.inventoryRuntimeByStage.COMMERCE_COMMAND_QUEUE_DLQ_ARN}
+    FULFILLMENT_COMMAND_QUEUE_URL: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_COMMAND_QUEUE_URL}
+    FULFILLMENT_COMMAND_QUEUE_ARN: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_COMMAND_QUEUE_ARN}
+    FULFILLMENT_COMMAND_QUEUE_DLQ_URL: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_COMMAND_QUEUE_DLQ_URL}
+    FULFILLMENT_COMMAND_QUEUE_DLQ_ARN: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_COMMAND_QUEUE_DLQ_ARN}
+    COMMERCE_RESULT_QUEUE_URL: ${self:custom.inventoryRuntimeByStage.COMMERCE_RESULT_QUEUE_URL}
+    COMMERCE_RESULT_QUEUE_ARN: ${self:custom.inventoryRuntimeByStage.COMMERCE_RESULT_QUEUE_ARN}
+    FULFILLMENT_RESULT_QUEUE_URL: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_RESULT_QUEUE_URL}
+    FULFILLMENT_RESULT_QUEUE_ARN: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_RESULT_QUEUE_ARN}
     OIDC_REALM: ${self:custom.inventoryRuntimeByStage.OIDC_REALM}
     DATABASE_URL: ${self:custom.inventoryRuntimeByStage.DATABASE_URL}
     PRIVATE_BUCKET_NAME: ${self:custom.inventoryRuntimeByStage.PRIVATE_BUCKET_NAME}
@@ -36,7 +50,6 @@ provider:
     CACHE_REDIS_URL: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_URL}
     CACHE_REDIS_KEY_PREFIX: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_KEY_PREFIX}
     SERVICE_ENCRYPTION_KEY: ${self:custom.inventoryRuntimeByStage.SERVICE_ENCRYPTION_KEY}
-    INTERNAL_SERVICE_REQUEST_SIGNING_SECRET: ${self:custom.inventoryRuntimeByStage.INTERNAL_SERVICE_REQUEST_SIGNING_SECRET}
     STOCK_RESERVATION_TIMEOUT_MINUTES: ${self:custom.inventoryRuntimeByStage.STOCK_RESERVATION_TIMEOUT_MINUTES}
     GOOGLE_MAPS_API_KEY: ${self:custom.inventoryRuntimeByStage.GOOGLE_MAPS_API_KEY}
     CELLIFI_AWS_REGION: ${self:custom.inventoryRuntimeByStage.CELLIFI_AWS_REGION}
@@ -120,27 +133,24 @@ functions:
           method: post
           authorizer:
             name: sharedAuth
-  reserveStock:
-    handler: src/inventory/handlers/stock/reserve.handler
-    timeout: 20
+  processReservationCommands:
+    handler: src/handlers/sqs/reservation-operations/process.handler
+    timeout: 30
     events:
-      - httpApi:
-          path: /stock/reserve
-          method: post
-  commitStock:
-    handler: src/inventory/handlers/stock/commit.handler
-    timeout: 20
+      - sqs:
+          arn: ${self:custom.inventoryRuntimeByStage.COMMERCE_COMMAND_QUEUE_ARN}
+          batchSize: 1
+          functionResponseType: ReportBatchItemFailures
+      - sqs:
+          arn: ${self:custom.inventoryRuntimeByStage.FULFILLMENT_COMMAND_QUEUE_ARN}
+          batchSize: 1
+          functionResponseType: ReportBatchItemFailures
+  publishReservationResults:
+    handler: src/handlers/scheduled/reservation-results/publish.handler
+    timeout: 60
     events:
-      - httpApi:
-          path: /stock/commit
-          method: post
-  releaseStock:
-    handler: src/inventory/handlers/stock/release.handler
-    timeout: 20
-    events:
-      - httpApi:
-          path: /stock/release
-          method: post
+      - schedule:
+          rate: rate(1 minute)
   expireStockReservations:
     handler: src/handlers/scheduled/stock-reservations/expire.handler
     timeout: 20
@@ -312,6 +322,7 @@ functions:
 
 plugins:
   - serverless-offline
+  - serverless-offline-sqs
 
 custom:
   inventoryRuntimeByStage: ${file(./serverless.runtime.${self:provider.stage}.yml)}
@@ -323,3 +334,10 @@ custom:
     noPrependStageInUrl: true
     hideStackTraces: true
     noTimeout: true
+  serverless-offline-sqs:
+    autoCreate: false
+    endpoint: ${self:custom.inventoryRuntimeByStage.AWS_ENDPOINT_URL}
+    region: us-east-1
+    accessKeyId: test
+    secretAccessKey: test
+    waitTimeSeconds: 0

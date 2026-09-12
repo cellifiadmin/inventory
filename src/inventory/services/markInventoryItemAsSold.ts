@@ -1,12 +1,12 @@
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
 
-import prismaInventory from '@/lib/prismaInventory';
+import { lockStockItems, stockBalance, withStockTransaction } from '@/inventory/services/stockReservationShared';
 import {
   MovementDirection,
   MovementReason,
 } from '@/lib/prismaInventoryTypes';
-import { createStockMovement, calculateRemainingQuantity } from '@/services/stockService';
+import { createStockMovement } from '@/services/stockService';
 import { notifyOffersOnZeroStock } from '@/inventory/services/notifyOffersOnZeroStock';
 import type { AuthUserType } from '@/types/userType';
 
@@ -39,50 +39,55 @@ export const markInventoryItemAsSold = async (
   }
 
   const sellerIdentifier = requireAccountIdentifier(user);
-  const item = await prismaInventory.item.findUnique({
-    where: { id: itemId },
-    select: {
-      id: true,
-      itemCode: true,
-      sellerIdentifier: true,
-      deletedAt: true,
-    },
+  const result = await withStockTransaction(async tx => {
+    await lockStockItems(tx, [itemId]);
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
+      select: {
+        id: true,
+        itemCode: true,
+        sellerIdentifier: true,
+        deletedAt: true,
+      },
+    });
+
+    if (!item || item.deletedAt) {
+      throw createError(StatusCodes.NOT_FOUND, 'Inventory item not found');
+    }
+
+    if (item.sellerIdentifier !== sellerIdentifier) {
+      throw createError(StatusCodes.FORBIDDEN, 'Inventory item seller invalid');
+    }
+
+    const remainingQuantity = await stockBalance(tx, item.id);
+
+    if (remainingQuantity <= 0) {
+      throw createError(StatusCodes.BAD_REQUEST, 'No remaining quantity available');
+    }
+
+    const soldQuantity = quantity ?? remainingQuantity;
+
+    if (soldQuantity > remainingQuantity) {
+      throw createError(
+        StatusCodes.BAD_REQUEST,
+        `Insufficient stock. Remaining: ${remainingQuantity}, requested: ${soldQuantity}`,
+      );
+    }
+
+    const movement = await createStockMovement({
+      itemId: item.id,
+      quantity: soldQuantity,
+      direction: MovementDirection.OUT,
+      reason: MovementReason.SOLD,
+      metadata: {
+        inventoryItemId: item.id,
+      },
+    }, tx);
+
+    const newRemainingQuantity = remainingQuantity - soldQuantity;
+    return { item, remainingQuantity, soldQuantity, movement, newRemainingQuantity };
   });
-
-  if (!item || item.deletedAt) {
-    throw createError(StatusCodes.NOT_FOUND, 'Inventory item not found');
-  }
-
-  if (item.sellerIdentifier !== sellerIdentifier) {
-    throw createError(StatusCodes.FORBIDDEN, 'Inventory item seller invalid');
-  }
-
-  const remainingQuantity = await calculateRemainingQuantity(item.id);
-
-  if (remainingQuantity <= 0) {
-    throw createError(StatusCodes.BAD_REQUEST, 'No remaining quantity available');
-  }
-
-  const soldQuantity = quantity ?? remainingQuantity;
-
-  if (soldQuantity > remainingQuantity) {
-    throw createError(
-      StatusCodes.BAD_REQUEST,
-      `Insufficient stock. Remaining: ${remainingQuantity}, requested: ${soldQuantity}`,
-    );
-  }
-
-  const movement = await createStockMovement({
-    itemId: item.id,
-    quantity: soldQuantity,
-    direction: MovementDirection.OUT,
-    reason: MovementReason.SOLD,
-    metadata: {
-      inventoryItemId: item.id,
-    },
-  });
-
-  const newRemainingQuantity = remainingQuantity - soldQuantity;
+  const { item, remainingQuantity, soldQuantity, movement, newRemainingQuantity } = result;
   await notifyOffersOnZeroStock({
     sellerIdentifier: item.sellerIdentifier,
     itemCode: item.itemCode,

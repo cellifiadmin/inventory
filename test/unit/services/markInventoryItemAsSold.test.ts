@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockPrismaInventory = {
+  $queryRaw: jest.fn(async () => [{ id: 12 }]),
+  $transaction: jest.fn<(callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>>(),
+  movement: { findMany: jest.fn(async () => [{ quantity: await mockCalculateRemainingQuantity(), direction: 'IN' }]) },
   item: {
     findUnique: jest.fn<() => Promise<{ id: number; itemCode: string; sellerIdentifier: string; deletedAt: Date | null } | null>>(),
   },
@@ -45,6 +48,7 @@ describe('markInventoryItemAsSold', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrismaInventory.$transaction.mockImplementation(callback => callback(mockPrismaInventory));
   });
 
   it('creates the sold movement without notifying offers when stock remains positive', async () => {
@@ -75,6 +79,7 @@ describe('markInventoryItemAsSold', () => {
         itemId: 12,
         quantity: 1,
       }),
+      mockPrismaInventory,
     );
     expect(mockEnqueueOffersStockSync).not.toHaveBeenCalled();
   });
@@ -142,6 +147,7 @@ describe('markInventoryItemAsSold', () => {
         itemId: 12,
         quantity: 4,
       }),
+      mockPrismaInventory,
     );
     expect(mockEnqueueOffersStockSync).toHaveBeenCalledWith(
       {
@@ -154,4 +160,26 @@ describe('markInventoryItemAsSold', () => {
       },
     );
   });
+  it.each([0, -1, 1.5])('rejects invalid sold quantity %p', async quantity => {
+    await expect(markInventoryItemAsSold(user, 12, quantity)).rejects.toThrow('Invalid quantity');
+    expect(mockPrismaInventory.$transaction).not.toHaveBeenCalled();
+  });
+  it('requires seller identity before locking stock', async () => {
+    await expect(markInventoryItemAsSold({ ...user, accountIdentifier: undefined }, 12)).rejects.toThrow('Seller required');
+  });
+  it.each([null, { id: 12, itemCode: 'code', sellerIdentifier: 'acct-1', deletedAt: new Date() }])('rejects missing or deleted stock %p', async item => {
+    mockPrismaInventory.item.findUnique.mockResolvedValue(item);
+    await expect(markInventoryItemAsSold(user, 12)).rejects.toThrow('Inventory item not found');
+  });
+  it('enforces seller ownership within the transaction', async () => {
+    mockPrismaInventory.item.findUnique.mockResolvedValue({ id: 12, itemCode: 'code', sellerIdentifier: 'other', deletedAt: null });
+    await expect(markInventoryItemAsSold(user, 12)).rejects.toThrow('Inventory item seller invalid');
+  });
+  it.each([[0, undefined, 'No remaining quantity available'], [1, 2, 'Insufficient stock. Remaining: 1, requested: 2']] as const)('validates the locked balance %p', async (balance, quantity, message) => {
+    mockPrismaInventory.item.findUnique.mockResolvedValue({ id: 12, itemCode: 'code', sellerIdentifier: 'acct-1', deletedAt: null });
+    mockCalculateRemainingQuantity.mockResolvedValue(balance);
+    await expect(markInventoryItemAsSold(user, 12, quantity)).rejects.toThrow(message);
+    expect(mockCreateStockMovement).not.toHaveBeenCalled();
+  });
+
 });

@@ -1,3 +1,4 @@
+import { lockStockItems, withStockTransaction } from '@/inventory/services/stockReservationShared';
 import {
   ComponentChildType,
   ItemKind,
@@ -1228,7 +1229,8 @@ export const updateInventoryItemBoundary = async (
   const shouldEmitImageUpdate =
     input.photos !== undefined || input.mainPhotoHash !== undefined;
 
-  const { updatedItem, quantitySyncResult } = await prismaInventory.$transaction(async (tx) => {
+  const { updatedItem, quantitySyncResult } = await withStockTransaction(async (tx) => {
+    if (input.quantity !== undefined) await lockStockItems(tx, [item.id]);
     let quantitySyncResult: QuantitySyncResult | null = null;
 
     if (item.kind === ItemKind.LISTING) {

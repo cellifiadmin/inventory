@@ -1,127 +1,29 @@
+import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
+import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
+import { commitStockSchema, type CommitStockInput } from '@/inventory/types/stockReservationCommands';
+import { executeReservationOperation, loadReservationLines, reservationResult, updateReservation, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
 
-import prismaInventory from '@/lib/prismaInventory';
-import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
-import {
-  buildLineMetadataFilter,
-  buildReservedMovementIdFilter,
-  commitStockSchema,
-  type InventoryStockTransaction,
-  type CommitStockInput,
-  type MovementRecord,
-} from '@/inventory/services/stockReservationShared';
-
-const MOVEMENT_REASON_RELEASED = 'RELEASED' as typeof MovementReason.SOLD;
-
-const getActiveReservedMovement = async (
-  tx: InventoryStockTransaction,
-  input: { checkoutId: string; version: number; lineId: string },
-) => {
-  const [reservedMovements, soldMovements] = await Promise.all([
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.RESERVED,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.SOLD,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-  ]);
-
-  if (soldMovements.length > 0) {
-    return { reservedMovement: null, alreadyCommitted: true };
-  }
-
-  for (const reservedMovement of reservedMovements as MovementRecord[]) {
-    const relatedClosures = await tx.movement.findMany({
-      where: {
-        reason: {
-          in: [MovementReason.RELEASED, MovementReason.SOLD],
-        },
-        AND: [buildReservedMovementIdFilter(reservedMovement.id)],
-      },
-    });
-
-    if (relatedClosures.length === 0) {
-      return { reservedMovement, alreadyCommitted: false };
-    }
-  }
-
-  return { reservedMovement: null, alreadyCommitted: false };
-};
-
-export const commitStock = async (rawInput: CommitStockInput) => {
+export const commitStock = async (rawInput: CommitStockInput, transaction?: InventoryStockTransaction) => {
   const input = commitStockSchema.parse(rawInput);
-
-  return prismaInventory.$transaction(async (tx) => {
-    const results: Array<{ lineId: string; reservedMovementId: number | null }> = [];
-
-    for (const line of input.lines) {
-      const { reservedMovement, alreadyCommitted } = await getActiveReservedMovement(tx, {
-        checkoutId: input.checkoutId,
-        version: input.version,
-        lineId: line.lineId,
-      });
-
-      if (alreadyCommitted) {
-        results.push({
-          lineId: line.lineId,
-          reservedMovementId: null,
-        });
-        continue;
+  return executeReservationOperation(ReservationOperationKind.COMMIT, input, async tx => {
+    const records = await loadReservationLines(tx, input);
+    for (const record of records) {
+      if (record.state !== ReservationState.PAYMENT_LOCKED || record.paymentScopeId !== input.paymentScopeId || record.fence !== input.fence) {
+        throw createError(StatusCodes.CONFLICT, 'Reservation payment protection mismatch');
       }
-
-      if (!reservedMovement) {
-        throw createError(
-          StatusCodes.CONFLICT,
-          `Active reservation not found for ${line.lineId}`,
-        );
-      }
-
-      await tx.movement.create({
-        data: {
-          itemId: reservedMovement.itemId,
-          quantity: reservedMovement.quantity,
-          direction: MovementDirection.IN,
-          reason: MOVEMENT_REASON_RELEASED,
-          metadata: {
-            checkoutId: input.checkoutId,
-            version: input.version,
-            lineId: line.lineId,
-            reservedMovementId: reservedMovement.id,
-            cause: 'commit',
-          },
-        },
-      });
-
-      await tx.movement.create({
-        data: {
-          itemId: reservedMovement.itemId,
-          quantity: reservedMovement.quantity,
-          direction: MovementDirection.OUT,
-          reason: MovementReason.SOLD,
-          metadata: {
-            checkoutId: input.checkoutId,
-            version: input.version,
-            lineId: line.lineId,
-            reservedMovementId: reservedMovement.id,
-          },
-        },
-      });
-
-      results.push({
-        lineId: line.lineId,
-        reservedMovementId: reservedMovement.id,
-      });
     }
-
-    return { lines: results };
-  });
+    const committed = [];
+    for (const record of records) {
+      const data = { itemId: record.itemId, quantity: record.heldMovement.quantity };
+      const released = await tx.movement.create({ data: { ...data, direction: MovementDirection.IN, reason: MovementReason.RELEASED } });
+      const sold = await tx.movement.create({ data: { ...data, direction: MovementDirection.OUT, reason: MovementReason.SOLD } });
+      committed.push(await updateReservation(tx, record, {
+        state: ReservationState.COMMITTED, releasedMovementId: released.id, soldMovementId: sold.id,
+        paymentId: input.paymentId, purchaseId: input.purchaseId, commerceSellerOrderId: input.commerceSellerOrderId,
+      }));
+    }
+    return reservationResult(input.checkoutId, input.version, committed);
+  }, transaction);
 };

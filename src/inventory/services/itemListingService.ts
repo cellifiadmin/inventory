@@ -1,3 +1,4 @@
+import { lockStockItems, withStockTransaction } from '@/inventory/services/stockReservationShared';
 import {
   ComponentChildType,
   ItemKind,
@@ -875,7 +876,8 @@ export const updateInventoryItemListing = async (
   const requestedImageMutation =
     photos !== undefined || mainPhotoHash !== undefined;
 
-  await prismaInventory.$transaction(async (tx) => {
+  await withStockTransaction(async (tx) => {
+    if (quantity != null) await lockStockItems(tx, [item.id]);
     const inventoryItemUpdates: Record<string, unknown> = {};
     const offerUpdates: Record<string, unknown> = {};
 

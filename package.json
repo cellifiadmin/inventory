@@ -5,15 +5,15 @@
   "scripts": {
     "test": "jest --runInBand",
     "test:unit": "jest --runInBand test/unit",
-    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs test/unit/config/purchaseCoverageConfig.test.cjs",
+    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs test/unit/config/purchaseCoverageConfig.test.cjs test/unit/config/localWorkflowStartup.test.mjs",
     "ensure:sharp:lambda": "npm install --no-save --os=linux --cpu=x64 --libc=glibc sharp",
     "local:db:setup": "bash scripts/setup-local-db.sh",
     "test:db:setup": "bash scripts/setup-test-db.sh",
     "prisma:generate": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma generate --schema=prisma/schema.prisma'",
     "prisma:migrate:deploy": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma migrate deploy --schema=prisma/schema.prisma'",
     "prisma:validate": "bash -c 'export INVENTORY_DATABASE_URL=${INVENTORY_DATABASE_URL:-${DATABASE_URL:-postgresql://localhost/inventory_placeholder}} && npx prisma validate --schema=prisma/schema.prisma'",
-    "dev": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless offline --stage local",
-    "local": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless offline --stage local",
+    "dev": "bash scripts/run-local-workflow.sh",
+    "local": "bash scripts/run-local-workflow.sh",
     "prepackage:local": "npm run ensure:sharp:lambda",
     "package:local": "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_SDK_LOAD_CONFIG serverless package --stage local",
     "deploy": "npm run deploy:dev",
@@ -25,7 +25,8 @@
     "test:purchase:integration": "jest --runInBand --config jest.purchase-integration.config.cjs",
     "test:purchase:providers": "jest --runInBand --config jest.purchase-providers.config.cjs",
     "test:purchase:regression": "jest --runInBand --config jest.purchase-regression.config.cjs",
-    "test:purchase:coverage": "npm run test:purchase:unit -- --coverage"
+    "test:purchase:coverage": "npm run test:purchase:unit -- --coverage",
+    "local:queue:ensure": "bash scripts/ensure-local-workflow-queues.sh"
   },
   "prisma": {
     "seed": "echo 'Inventory service does not define a seed yet'"
@@ -40,6 +41,7 @@
     "prisma": "^6.8.2",
     "serverless": "^4.38.1",
     "serverless-offline": "^14.4.0",
+    "serverless-offline-sqs": "^9.0.1",
     "ts-jest": "^29.4.5",
     "typescript": "^5.3.3"
   },

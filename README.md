@@ -19,7 +19,7 @@ Current scope:
 - admin owner-side account-address reads and writes under
   `/inventory/admin/accounts/{accountIdentifier}/addresses`
 - stock movement and sold-state flows
-- signed internal stock reserve / commit / release flows plus scheduled reservation expiry
+- typed stock reservations and payment protection through durable owner SQS commands, with scheduled result delivery and reservation expiry
 - owner-first seller/admin account-address persistence reused before UM
   account-upgrade request creation and later read live by request pages
 - seller `WAREHOUSE`/`PICKUP` account-address coordinate ownership and geocoding
@@ -33,9 +33,6 @@ Extracted HTTP surface:
 - `/inventory/item-resolutions`
 - `/inventories`
 - `/inventories/{id}/mark-as-sold`
-- `/stock/reserve`
-- `/stock/commit`
-- `/stock/release`
 
 Listing photo normalization contract:
 - Active MP seller listing-photo uploads now use the centralized flow:
@@ -50,17 +47,25 @@ Listing photo normalization contract:
 - In that active flow, `inventory` no longer exposes or tolerates legacy direct blob/attachment mutation routes for seller listing photos. `media` owns upload sessions, checksum dedupe, physical object keys, and normalized listing-photo renditions, while `inventory` only materializes the finalized asset into its seller-owned blob/attachment read model during inventory writes.
 - The normalized listing-photo rendition is owned by `media`; inventory persists the resulting serving key and public CDN URL into its read model and downstream offers sync payloads.
 
-Stock ownership contract:
-- inventory movement aggregation is the sole source of truth for remaining stock
-- `POST /inventories/{id}/mark-as-sold` may omit quantity; the service computes the live remaining balance and writes one `OUT` movement that zeroes the ledger
-- internal checkout reservation flows use immutable movement lineage only; there is no standalone reservation table
-- `POST /stock/reserve` is all-or-nothing by checkout version and creates one `OUT + RESERVED` movement per checkout line with minimal correlation metadata `checkoutId + version + lineId + expiresAt`
-- `POST /stock/commit` is idempotent by checkout line identity and closes an active hold by writing `IN + RELEASED (cause=commit)` and `OUT + SOLD` atomically for each line
-- `POST /stock/release` is the compensating path for checkout cancel and unsuccessful payment terminal states and writes `IN + RELEASED`
-- the scheduled reservation sweeper closes expired active holds with `IN + RELEASED (cause=expired)`
-- offers sync is emitted only when a newly created `OUT` movement transitions `availableUnits` from `> 0` to `0`
-- the zero-stock sync payload is keyed by `sellerIdentifier + itemCode + direction`; it does not include `inventoryItemId`, `remainingQuantity`, or `totalStock`
-- internal `/stock/*` routes are protected by the shared HMAC service-signature contract using `x-mp-timestamp` + `x-mp-signature`, `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET`, and the exact request path/query; body-only legacy signatures are rejected
+Stock ownership and workflow contract:
+- Immutable movements remain the sole quantity truth. Typed `StockReservation` records hold checkout/version/line identity, expiry, revision, payment scope and fence, with database foreign keys to their held/released/sold movements; no movement metadata fallback is used.
+- Commerce reserves the entire frozen checkout/version line set in one atomic `INVENTORY_RESERVE` command. Same-item lines are aggregated before availability checks. All quantity writers lock distinct item rows in sorted order.
+- `INVENTORY_PROTECT` moves ordinary holds to `PAYMENT_LOCKED` under a payment scope and fence. Protected stock never expires automatically. Fulfillment's trusted command queue can commit an exact seller subset using reservation IDs, current revisions, payment identity, purchase identity and commercial seller-order lineage.
+- Commit writes `IN + RELEASED` and `OUT + SOLD` atomically. Release of protected stock requires explicit closed-payment evidence and a newer fence; unknown payment outcomes never release stock. Expiry scans only unprotected `HELD` rows and rechecks state under item locks using the database clock.
+- The strict `WORKFLOW_COMMAND` envelope carries the originating audit actor and immutable owner operation/execution/resource scope. Producer authority comes from exact configured Standard SQS source ARNs; malformed, equal or FIFO queue configuration is rejected before any record effects. Canonical SHA256 matches the owner's workflow kind, resource, step, participant, input and deadline scope.
+- Inbox receipt, domain operation, immutable result and delivery outbox persist in one database transaction. Exact replay has no duplicate stock effect; changed immutable input is rejected. A fresh reconciliation receipt creates a new delivery of the original result.
+- `WORKFLOW_RESULT` preserves the remote scope and stable `${operationId}:result` event ID. Definitive rejection returns a safe error code; an unseen expired protect/commit/release returns `UNKNOWN` plus a durable recovery record assigned to `inventory-operations` with severity, a specific next action and a database-clock due date. Recovery uses a separate inspected operation, preserving the original result.
+- The Standard SQS publisher sends outside the transaction and uses leased, fenced outbox claims, bounded retries and assigned recovery on exhaustion. A successful send requires a nonempty SQS `MessageId`; an unknown acknowledgement retries the original event. A send accepted before a lost database acknowledgement is delivered again with the same logical result identity.
+- The former `/stock/reserve`, `/stock/commit` and `/stock/release` HTTP routes and their HMAC secret dependency are removed. There is no HTTP fallback for workflow commands.
+- `POST /inventories/{id}/mark-as-sold` may omit quantity; it computes the live ledger balance under the same item lock and writes an `OUT` movement.
+- Offers sync is emitted when a newly created `OUT` movement transitions `availableUnits` from `> 0` to `0`; its payload is `sellerIdentifier + itemCode + direction`.
+
+Workflow runtime:
+- Node.js 22 runs one reservation command consumer over the separate Commerce and Fulfillment Standard queues. Both mappings use `ReportBatchItemFailures`; runtime source ARN validation selects authority.
+- `publishReservationResults` and `expireStockReservations` run every minute in cloud. Result publication has a 25-second claim budget, 20-second send timeout and 60-second Lambda timeout.
+- Infrastructure owns queue creation, redrive policy, DLQs and producer permissions. The canonical contract is `infrastructure/modules/marketplace_workflow_queues/queues.json`; Inventory receives twelve URL/ARN bindings, including its two command DLQs. Cloud bindings use `/cellifi/<dev|test|prod>/inventory/runtime/<lowercase-env-name-with-hyphens>`.
+- Docker's infrastructure bootstrap provisions local queues. For an explicit local refresh, run `CELLIFI_INFRASTRUCTURE_ROOT=/path/to/infrastructure npm run local:queue:ensure` (`CELLIFI_LOCAL_STAGE=test` selects isolated test queues). The helper defaults to the sibling infrastructure checkout and never defines independent queue attributes.
+- `npm run dev` uses `serverless offline start` so plugin lifecycle hooks run. The installed offline plugin also invokes both schedule handlers automatically every minute. `serverless-offline` starts HTTP before `serverless-offline-sqs`; the latter consumes already-provisioned queues with `autoCreate: false`. The SQS plugin uses the same explicit local endpoint as the SDK, so an isolated acceptance container can run on port 4567. Do not start a second command consumer against the same local queue.
 
 Seller account-address coordinate contract:
 - `inventory` is the only service that derives missing latitude/longitude for seller `WAREHOUSE` and `PICKUP` account addresses
@@ -91,9 +96,7 @@ Current local verification:
 Env files contract:
 - tracked stage files are `.env.local`, `.env.test`, `.env.development`, and `.env.production`
 - `.env.local` / `.env.test` keep direct inventory-local values, including inventory-owned queue wiring and local object-storage settings
-- when local signed callers such as `commerce` hit `/stock/*`, both services
-  must share the same `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET` value
-- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including `INTERNAL_SERVICE_REQUEST_SIGNING_SECRET` from the runtime secret bundle and `STOCK_RESERVATION_TIMEOUT_MINUTES` from inventory-owned SSM
+- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including owner command/result queue bindings and `STOCK_RESERVATION_TIMEOUT_MINUTES` from inventory-owned SSM
 - inventory env files must stay inventory-scoped and may carry only inventory-owned runtime variables and inventory-owned integration values such as the offers stock-sync queue settings
 - no committed shared `inventory/.env` should be used as the source of truth
 
@@ -119,13 +122,46 @@ Purchase workflow implementation verification:
 - `npm run test:purchase:regression` isolates characterized runtime simulation failures. The implementation branch intentionally retains failing business regressions until their owning changes land.
 - Reports are separate under `coverage/purchase-*`; module selection is recorded in `test/purchase-coverage-manifest.json`. `npm run test:config` also verifies unloaded-module coverage and suite separation.
 
-Reservation concurrency implementation:
+Reservation and workflow verification:
 
-- Reservation acceptance serializes one checkout/version with a transaction advisory lock, then locks distinct inventory rows in ascending ID order before reading the ledger. Stock quantity remains derived only from movements.
-- Multiple request lines for the same item are validated by their combined pending quantity before any reservation movements are written. Duplicate line IDs are rejected. Concurrent replay preserves one hold, and replay with another item or quantity is rejected.
-- Reservation expiry uses the database clock. Existing holds require a valid, unelapsed deadline; missing or expired metadata is rejected without inventing a new expiry. Multiple existing deadlines return the earliest one.
-- This fixes the reproduced over-reservation and duplicate-replay cases. Typed reservation/payment-protection records, remaining stock-write serialization, asynchronous owner command/result transport and scheduled expiry replacement are still implementation work; the old mutation endpoints will be removed during that coordinated replacement.
-- Use Node.js 22 (`nvm use`). The branch has an isolated dependency tree and explicitly includes `@types/http-errors`. `npx tsc --noEmit` passes with strict checking and tests included; database/service mocks declare their asynchronous result signatures.
-- Verified: all 106 Inventory unit tests in 30 suites pass, the changed reservation service has 100% statements/branches/functions/lines, and eight PostgreSQL reservation checks cover aggregation, concurrent acceptance/replay, changed inputs and invalid expiry. Full purchase module coverage remains below its release threshold.
+- Unit tests cover strict canonical envelopes, whole-checkout atomic reservation, sorted stock locks, payment protection and terminal transitions, safe error results, trusted queue ingress, fenced delivery retries, and accepted-send acknowledgement loss.
+- PostgreSQL tests cover concurrent replay and commit/release races, actual foreign key lineage rejection, enclosing transaction rollback, durable unknown outcomes, reconciliation redelivery, exact seller subsets and UTC/Europe-Berlin deadline behavior. Every new lifecycle/workflow timestamp is `TIMESTAMPTZ(3)`.
+- Use Node.js 22 (`nvm use`). `npx tsc --noEmit` checks source and tests strictly; database/service mocks declare their asynchronous result signatures.
+- The changed lifecycle and workflow modules have 100% statements, branches, functions and lines in focused verification. The wider transitive purchase coverage release gate remains below its threshold, and provider acceptance is still a separate required gate.
+- Download and preview URLs pass their five-minute expiry to AWS SDK v3 presigner options; URL tests verify `X-Amz-Expires=300`.
 
-- Download and preview URLs pass their five-minute expiry to the AWS SDK v3 presigner options; URL tests verify the signed `X-Amz-Expires=300` value.
+
+Local workflow startup:
+
+Run workspace Docker and wait until its ready hooks have created the queues,
+published coordinators and `.local/workflows/local.json`. Then, from this service,
+run `npm run dev` or `npm run local` (default stage `local`). Both commands use
+`scripts/run-local-workflow.sh`, which invokes the infrastructure runtime validator
+before the service-local Serverless executable. Queue provisioning remains owned
+by Docker/infrastructure; the launcher only reads verified resource references.
+
+The wrapper defaults to the sibling `../infrastructure` checkout and workspace
+`../.local/workflows/<stage>.json`, resolving paths from this repository.
+`CELLIFI_LOCAL_STAGE=local|test` selects the local resource namespace and matching
+runtime artifact. Serverless always uses `--stage local` to resolve the direct
+local runtime map. Its cloud `test` stage resolves SSM and is not the local test
+queue namespace. For a separate worktree and isolated test runtime, set all three:
+
+```sh
+CELLIFI_LOCAL_STAGE=test \
+CELLIFI_INFRASTRUCTURE_ROOT=/path/to/infrastructure-worktree \
+CELLIFI_LOCAL_WORKFLOW_RUNTIME_FILE=/path/to/workspace/.local/workflows/test.json \
+npm run dev
+```
+
+Optional Serverless flags retain their argument boundaries, for example
+`npm run dev -- --httpPort 9999`. Forwarded `--stage`, `--stage=...`, `-s` and
+`-s...` options are rejected; use `CELLIFI_LOCAL_STAGE` instead. The artifact must
+describe that selected resource namespace. Selecting test resources does not select
+a test database: the acceptance helper must inject guarded test database and
+service secret configuration before calling the wrapper. The infrastructure
+launcher preserves database and provider
+configuration, forces local AWS test credentials and injects only this owner's
+canonical queue/workflow references. Missing files or inconsistent values never
+fall back to manually copied ARN environment variables. `npm run test:config`
+checks the wrapper defaults, worktree overrides and exact forwarded arguments.

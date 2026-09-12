@@ -1,129 +1,34 @@
+import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
+import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
+import { releaseStockSchema, type ReleaseStockInput } from '@/inventory/types/stockReservationCommands';
+import { databaseNow, executeReservationOperation, loadReservationLines, reservationResult, updateReservation, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
 
-import prismaInventory from '@/lib/prismaInventory';
-import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
-import {
-  buildLineMetadataFilter,
-  buildReservedMovementIdFilter,
-  releaseStockSchema,
-  type InventoryStockTransaction,
-  type MovementRecord,
-  type ReleaseStockInput,
-} from '@/inventory/services/stockReservationShared';
-
-const MOVEMENT_REASON_RELEASED = 'RELEASED' as typeof MovementReason.SOLD;
-
-const getLineReleaseState = async (
-  tx: InventoryStockTransaction,
-  input: { checkoutId: string; version: number; lineId: string },
-) => {
-  const [reservedMovements, releaseMovements, soldMovements] = await Promise.all([
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.RESERVED,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.RELEASED,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-    tx.movement.findMany({
-      where: {
-        reason: MovementReason.SOLD,
-        AND: buildLineMetadataFilter(input),
-      },
-      orderBy: { id: 'desc' },
-    }),
-  ]);
-
-  return {
-    reservedMovements: (reservedMovements ?? []) as MovementRecord[],
-    releaseMovements: (releaseMovements ?? []) as MovementRecord[],
-    soldMovements: (soldMovements ?? []) as MovementRecord[],
-  };
-};
-
-export const releaseStock = async (rawInput: ReleaseStockInput) => {
+export const releaseStock = async (rawInput: ReleaseStockInput, transaction?: InventoryStockTransaction) => {
   const input = releaseStockSchema.parse(rawInput);
-
-  return prismaInventory.$transaction(async (tx) => {
-    const results: Array<{ lineId: string; reservedMovementId: number | null; cause: string }> = [];
-
-    for (const line of input.lines) {
-      const state = await getLineReleaseState(tx, {
-        checkoutId: input.checkoutId,
-        version: input.version,
-        lineId: line.lineId,
-      });
-
-      if (state.soldMovements.length > 0) {
-        throw createError(
-          StatusCodes.CONFLICT,
-          `Committed stock cannot be released for ${line.lineId}`,
-        );
-      }
-
-      let reservedMovement: MovementRecord | undefined;
-
-      for (const candidate of state.reservedMovements) {
-        const relatedReleases = await tx.movement.findMany({
-          where: {
-            reason: MovementReason.RELEASED,
-            AND: [buildReservedMovementIdFilter(candidate.id)],
-          },
-        });
-
-        if ((relatedReleases ?? []).length === 0) {
-          reservedMovement = candidate;
-          break;
+  return executeReservationOperation(ReservationOperationKind.RELEASE, input, async tx => {
+    const records = await loadReservationLines(tx, input);
+    const now = await databaseNow(tx);
+    for (const record of records) {
+      if (record.state !== ReservationState.HELD && record.state !== ReservationState.PAYMENT_LOCKED) throw createError(StatusCodes.CONFLICT, 'Reservation cannot be released');
+      if (record.state === ReservationState.PAYMENT_LOCKED) {
+        const proof = input.financialResolution;
+        if (!proof || proof.paymentScopeId !== record.paymentScopeId || proof.fence <= record.fence || new Date(proof.scopeClosedAt) > now) {
+          throw createError(StatusCodes.CONFLICT, 'Verified closed payment scope required');
         }
       }
-
-      if (!reservedMovement) {
-        if (state.releaseMovements.length > 0) {
-          results.push({
-            lineId: line.lineId,
-            reservedMovementId: null,
-            cause: input.cause,
-          });
-          continue;
-        }
-
-        throw createError(
-          StatusCodes.CONFLICT,
-          `Active reservation not found for ${line.lineId}`,
-        );
-      }
-
-      await tx.movement.create({
-        data: {
-          itemId: reservedMovement.itemId,
-          quantity: reservedMovement.quantity,
-          direction: MovementDirection.IN,
-          reason: MOVEMENT_REASON_RELEASED,
-          metadata: {
-            checkoutId: input.checkoutId,
-            version: input.version,
-            lineId: line.lineId,
-            reservedMovementId: reservedMovement.id,
-            cause: input.cause,
-          },
-        },
-      });
-
-      results.push({
-        lineId: line.lineId,
-        reservedMovementId: reservedMovement.id,
-        cause: input.cause,
-      });
     }
-
-    return { lines: results };
-  });
+    const released = [];
+    for (const record of records) {
+      const movement = await tx.movement.create({ data: { itemId: record.itemId,
+        quantity: record.heldMovement.quantity, direction: MovementDirection.IN, reason: MovementReason.RELEASED } });
+      const proof = record.state === ReservationState.PAYMENT_LOCKED ? input.financialResolution : undefined;
+      released.push(await updateReservation(tx, record, {
+        state: ReservationState.RELEASED, releasedMovementId: movement.id, releaseCause: input.cause,
+        ...(proof ? { resolutionId: proof.resolutionId, scopeClosedAt: new Date(proof.scopeClosedAt), fence: proof.fence } : {}),
+      }));
+    }
+    return reservationResult(input.checkoutId, input.version, released);
+  }, transaction);
 };

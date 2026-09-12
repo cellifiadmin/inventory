@@ -88,6 +88,7 @@ describe('updateInventoryItemBoundary zero-stock sync', () => {
 
   it('enqueues a delist message when an OUT adjustment moves stock to zero', async () => {
     const tx = {
+      $queryRaw: jest.fn(async () => [{ id: 12 }]),
       movement: {
         findMany: jest.fn(async (_args: unknown) => ([
           {

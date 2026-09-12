@@ -7,7 +7,6 @@ OFFERS_STOCK_SYNC_QUEUE_ARN: ${ssm:/cellifi/dev/inventory/runtime/offers-stock-s
 CACHE_REDIS_URL: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.cache_redis_url}
 CACHE_REDIS_KEY_PREFIX: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.cache_redis_key_prefix}
 SERVICE_ENCRYPTION_KEY: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.service_encryption_key}
-INTERNAL_SERVICE_REQUEST_SIGNING_SECRET: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.internal_service_request_signing_secret}
 STOCK_RESERVATION_TIMEOUT_MINUTES: ${ssm:/cellifi/dev/inventory/runtime/stock-reservation-timeout-minutes}
 GOOGLE_MAPS_API_KEY: ${self:custom.inventoryRuntimeByStage.INVENTORY_RUNTIME_SENSITIVE.google_maps_api_key}
 CELLIFI_AWS_REGION: ${ssm:/cellifi/dev/inventory/runtime/aws-region}
@@ -25,3 +24,15 @@ VPC:
   securityGroupIds:
     - ${ssm:/cellifi/dev/network/core-lambda-security-group-id}
   subnetIds: ${ssm:/cellifi/dev/network/core-lambda-subnet-ids}
+COMMERCE_COMMAND_QUEUE_URL: ${ssm:/cellifi/dev/inventory/runtime/commerce-command-queue-url}
+COMMERCE_COMMAND_QUEUE_ARN: ${ssm:/cellifi/dev/inventory/runtime/commerce-command-queue-arn}
+COMMERCE_COMMAND_QUEUE_DLQ_URL: ${ssm:/cellifi/dev/inventory/runtime/commerce-command-queue-dlq-url}
+COMMERCE_COMMAND_QUEUE_DLQ_ARN: ${ssm:/cellifi/dev/inventory/runtime/commerce-command-queue-dlq-arn}
+FULFILLMENT_COMMAND_QUEUE_URL: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-command-queue-url}
+FULFILLMENT_COMMAND_QUEUE_ARN: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-command-queue-arn}
+FULFILLMENT_COMMAND_QUEUE_DLQ_URL: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-command-queue-dlq-url}
+FULFILLMENT_COMMAND_QUEUE_DLQ_ARN: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-command-queue-dlq-arn}
+COMMERCE_RESULT_QUEUE_URL: ${ssm:/cellifi/dev/inventory/runtime/commerce-result-queue-url}
+COMMERCE_RESULT_QUEUE_ARN: ${ssm:/cellifi/dev/inventory/runtime/commerce-result-queue-arn}
+FULFILLMENT_RESULT_QUEUE_URL: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-result-queue-url}
+FULFILLMENT_RESULT_QUEUE_ARN: ${ssm:/cellifi/dev/inventory/runtime/fulfillment-result-queue-arn}
