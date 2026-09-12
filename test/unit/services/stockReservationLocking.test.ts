@@ -10,6 +10,10 @@ import { workflowInputHash } from '@/inventory/services/workflows/workflowIdenti
 import type { ReserveScopeRecord } from '@/inventory/services/stockReservationShared';
 import type { ReservationOperation } from '.prisma/inventoryClient';
 
+const mockPersistExpiry = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({});
+jest.mock('@/inventory/services/workflows/inventoryOwnerEventService', () => ({
+  persistReservationExpiryEventInTransaction: (...args: any[]) => mockPersistExpiry(...args),
+}));
 const now = new Date('2030-01-01T00:00:00Z');
 const asyncMock = <T>(value: T) =>
   jest.fn<(...args: unknown[]) => Promise<T>>().mockResolvedValue(value);
@@ -168,6 +172,7 @@ const resolution = {
 };
 
 beforeEach(() => {
+  mockPersistExpiry.mockReset().mockResolvedValue({});
   mockScope = makeScope();
   mockTx = makeTx();
   mockTransaction.mockReset().mockImplementation((work) => work(mockTx));
@@ -450,6 +455,52 @@ describe('expiry and transaction failures', () => {
     expect(result.expiredReservationCount).toBe(1);
     expect(result.lines[0].state).toBe('EXPIRED');
     expect(mockTx.movement.create).toHaveBeenCalledTimes(1);
+  });
+  it('persists expiry evidence after the scope revision and domain operation in the same transaction', async () => {
+    const expired = reservationRecord({ expiresAt: now });
+    mockScope.lines.push({
+      ...mockScope.lines[0],
+      id: 'second-scope-line',
+      lineId: 'second',
+      reservation: reservationRecord({ itemId: 5, id: 'second' }),
+    });
+    mockExpiryScan.mockResolvedValue([expired]);
+    mockTx.stockReservation.findMany.mockResolvedValue([expired]);
+    await expireStockReservations();
+    expect(mockPersistExpiry).toHaveBeenCalledWith(mockTx, {
+      checkoutId: 'checkout',
+      version: 1,
+      scope: expect.objectContaining({ revision: 2 }),
+      expiredReservationIds: ['reservation'],
+    });
+    expect(mockTx.reservationOperation.create.mock.invocationCallOrder[0]).toBeLessThan(
+      mockPersistExpiry.mock.invocationCallOrder[0],
+    );
+    const locks = mockTx.$queryRaw.mock.calls
+      .filter(([parts]) => parts.join('').includes('FROM items'))
+      .map(([, id]) => id);
+    expect(locks.slice(0, 2)).toEqual([5, 10]);
+    const stored = mockTx.reservationOperation.create.mock.calls[0][0] as {
+      data: ReservationOperation;
+    };
+    mockTx.reservationOperation.findUnique.mockResolvedValue(stored.data);
+    expect((await expireStockReservations()).expiredReservationCount).toBe(0);
+    expect(mockPersistExpiry).toHaveBeenCalledTimes(1);
+  });
+  it('fails closed if the scope is missing another requested reservation', async () => {
+    mockExpiryScan.mockResolvedValue([reservationRecord({ expiresAt: now })]);
+    mockScope.lines[0].reservation = null;
+    await expect(expireStockReservations()).rejects.toThrow(
+      'INVENTORY_RESERVE_EVIDENCE_INCONSISTENT',
+    );
+    expect(mockPersistExpiry).not.toHaveBeenCalled();
+  });
+  it('propagates event persistence failure so expiry cannot commit without notification', async () => {
+    const expired = reservationRecord({ expiresAt: now });
+    mockExpiryScan.mockResolvedValue([expired]);
+    mockTx.stockReservation.findMany.mockResolvedValue([expired]);
+    mockPersistExpiry.mockRejectedValue(new Error('event write failure'));
+    await expect(expireStockReservations()).rejects.toThrow('event write failure');
   });
   it.each([{ state: 'PAYMENT_LOCKED' as const }, {}])(
     'rechecks state and time under the item lock %p',

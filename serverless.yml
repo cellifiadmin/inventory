@@ -150,6 +150,12 @@ functions:
     events:
       - schedule:
           rate: rate(1 minute)
+  publishReservationOwnerEvents:
+    handler: src/handlers/scheduled/reservation-owner-events/publish.handler
+    timeout: 60
+    events:
+      - schedule:
+          rate: rate(1 minute)
   expireStockReservations:
     handler: src/handlers/scheduled/stock-reservations/expire.handler
     timeout: 20

@@ -70,7 +70,7 @@ test('reservation mutations use one Standard SQS consumer and bounded scheduled 
   const scripts = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts;
   assert.equal(scripts.dev, 'bash scripts/run-local-workflow.sh');
   assert.equal(scripts.local, 'bash scripts/run-local-workflow.sh');
-  assert.equal((serverlessConfig.match(/rate: rate\(1 minute\)/g) || []).length, 2);
+  assert.equal((serverlessConfig.match(/rate: rate\(1 minute\)/g) || []).length, 3);
   assert.doesNotMatch(serverlessConfig, /path:\s*\/stock\//);
   assert.doesNotMatch(serverlessConfig, /INTERNAL_SERVICE_REQUEST_SIGNING_SECRET/);
   assert.match(serverlessConfig, /processReservationCommands:[\s\S]*?handler: src\/handlers\/sqs\/reservation-operations\/process.handler/);
@@ -94,4 +94,8 @@ test('every stage has all twelve canonical workflow queue bindings', () => {
       }
     }
   }
+});
+
+test('owner expiry events have an independent bounded publisher on the existing owner result route', () => {
+  assert.match(serverlessConfig, /publishReservationOwnerEvents:\n\s+handler: src\/handlers\/scheduled\/reservation-owner-events\/publish.handler\n\s+timeout: 60/);
 });

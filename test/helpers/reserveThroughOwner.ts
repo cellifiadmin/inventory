@@ -58,6 +58,9 @@ export const cleanupReservationScopeFixture = async (checkoutPrefix: string) => 
       where: { resourceType: 'checkout', resourceId: { startsWith: checkoutPrefix } },
     })
   ).map((row) => row.operationId);
+  await prisma.inventoryOwnerEventRecovery.deleteMany({ where: { event: where } });
+  await prisma.inventoryOwnerEventOutbox.deleteMany({ where: { event: where } });
+  await prisma.inventoryOwnerEvent.deleteMany({ where });
   await prisma.inventoryResultOutbox.deleteMany({ where: { operationId: { in: ids } } });
   await prisma.inventoryInboxEvent.deleteMany({ where: { operationId: { in: ids } } });
   await prisma.inventoryCommandRecovery.deleteMany({ where: { operationId: { in: ids } } });

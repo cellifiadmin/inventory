@@ -453,6 +453,7 @@ enum InventoryRecoverySeverity {
 enum InventoryRecoveryAction {
   INSPECT_PAYMENT_AND_RESERVATION
   REDELIVER_ORIGINAL_RESULT
+  REDELIVER_OWNER_EVENT
 }
 
 model InventoryCommandRecovery {
@@ -503,6 +504,7 @@ model InventoryReserveScope {
   updatedAt                 DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
   lines                     InventoryReserveScopeLine[]
   noEffectClosure           InventoryReserveNoEffectClosure?
+  ownerEvents               InventoryOwnerEvent[]
 
   @@unique([checkoutId, checkoutVersion])
   @@unique([id, checkoutId, checkoutVersion])
@@ -540,4 +542,65 @@ model InventoryReserveNoEffectClosure {
 
   @@index([authorizingOperationId])
   @@map("inventory_reserve_no_effect_closures")
+}
+
+
+enum InventoryOwnerEventKind {
+  INVENTORY_RESERVATION_EXPIRED
+}
+
+model InventoryOwnerEvent {
+  id              String @id @inventoryDb.VarChar(191)
+  scopeId         String @map("scope_id")
+  scopeRevision   Int @map("scope_revision")
+  checkoutId      String @map("checkout_id")
+  checkoutVersion Int @map("checkout_version")
+  kind            InventoryOwnerEventKind
+  observedAt      DateTime @map("observed_at") @inventoryDb.Timestamptz(3)
+  payload         Json
+  payloadHash     String @map("payload_hash") @inventoryDb.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  scope           InventoryReserveScope @relation(fields: [scopeId, checkoutId, checkoutVersion], references: [id, checkoutId, checkoutVersion], onDelete: Restrict, onUpdate: Restrict)
+  delivery        InventoryOwnerEventOutbox?
+  recoveries      InventoryOwnerEventRecovery[]
+
+  @@unique([scopeId, scopeRevision])
+  @@index([checkoutId, checkoutVersion])
+  @@map("inventory_owner_events")
+}
+
+model InventoryOwnerEventOutbox {
+  id             String @id @default(uuid())
+  eventId        String @unique @map("event_id") @inventoryDb.VarChar(191)
+  state          InventoryResultDeliveryState @default(PENDING)
+  attempts       Int @default(0)
+  nextAttemptAt  DateTime @default(now()) @map("next_attempt_at") @inventoryDb.Timestamptz(3)
+  leaseOwner     String? @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @inventoryDb.Timestamptz(3)
+  fencingToken   Int @default(0) @map("fencing_token")
+  lastErrorCode  String? @map("last_error_code")
+  createdAt      DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  deliveredAt    DateTime? @map("delivered_at") @inventoryDb.Timestamptz(3)
+  event          InventoryOwnerEvent @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([state, nextAttemptAt, id])
+  @@index([state, leaseExpiresAt, id])
+  @@map("inventory_owner_event_outbox")
+}
+
+model InventoryOwnerEventRecovery {
+  id            String @id @default(uuid())
+  eventId       String @map("event_id") @inventoryDb.VarChar(191)
+  reason        String
+  assignedOwner String @map("assigned_owner")
+  severity      InventoryRecoverySeverity
+  nextAction    InventoryRecoveryAction @map("next_action")
+  dueAt         DateTime @map("due_at") @inventoryDb.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  resolvedAt    DateTime? @map("resolved_at") @inventoryDb.Timestamptz(3)
+  event         InventoryOwnerEvent @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([eventId, reason])
+  @@index([resolvedAt, dueAt])
+  @@map("inventory_owner_event_recoveries")
 }

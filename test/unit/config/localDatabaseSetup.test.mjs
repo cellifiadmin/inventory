@@ -53,5 +53,6 @@ test('inventory local and test database contract includes bootstrap scripts and 
     '20260911205315_inventory_workflow_absolute_timestamps',
     '20260911214501_inventory_assigned_command_recovery',
     '20260912055934_immutable_inventory_reserve_scopes',
+    '20260912065024_inventory_reservation_expiry_owner_events',
   ]);
 });
