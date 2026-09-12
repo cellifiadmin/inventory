@@ -6,21 +6,67 @@ import { reservationResultSchema } from '@/inventory/types/stockReservationComma
 import { canonicalWorkflowInput } from '@/inventory/services/workflows/workflowIdentity';
 
 const identity = z.string().min(1).max(191);
-export const inventoryOwnerEventSchema = z
+const common = {
+  type: z.literal(EVENT.TYPE),
+  schemaVersion: z.literal(WORKFLOW_SCHEMA_VERSION),
+  producer: z.literal('inventory'),
+  eventId: identity,
+  resourceType: z.literal('checkout'),
+  resourceId: identity,
+  resourceVersion: z.number().int().positive().safe(),
+  observedAt: canonicalInventoryDate,
+  reservation: reservationResultSchema,
+};
+const financialResolution = z
   .object({
-    type: z.literal(EVENT.TYPE),
-    schemaVersion: z.literal(WORKFLOW_SCHEMA_VERSION),
-    producer: z.literal('inventory'),
-    eventKind: z.literal(EVENT.EXPIRY),
-    eventId: identity,
-    resourceType: z.literal('checkout'),
-    resourceId: identity,
-    resourceVersion: z.number().int().positive().safe(),
-    observedAt: canonicalInventoryDate,
-    expiredReservationIds: z.array(identity).min(1),
-    reservation: reservationResultSchema,
+    resolutionId: identity,
+    paymentScopeId: identity,
+    fence: z.number().int().positive().safe(),
+    scopeClosedAt: canonicalInventoryDate,
+    outcome: z.enum(['FAILED', 'CANCELLED', 'NOT_SUBMITTED']),
   })
-  .strict()
+  .strict();
+export const inventoryOwnerEventSchema = z
+  .discriminatedUnion('eventKind', [
+    z
+      .object({
+        ...common,
+        eventKind: z.literal(EVENT.EXPIRY),
+        expiredReservationIds: z.array(identity).min(1),
+      })
+      .strict(),
+    z
+      .object({
+        ...common,
+        eventKind: z.literal(EVENT.COMMITTED),
+        committedReservationIds: z.array(identity).min(1),
+        commit: z
+          .object({
+            reservationOperationId: identity,
+            paymentId: identity,
+            purchaseId: identity,
+            commerceSellerOrderId: identity,
+            paymentScopeId: identity,
+            fence: z.number().int().positive().safe(),
+          })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        ...common,
+        eventKind: z.literal(EVENT.RELEASED),
+        releasedReservationIds: z.array(identity).min(1),
+        release: z
+          .object({
+            reservationOperationId: identity,
+            cause: z.enum(['payment_failed', 'cancelled']),
+            financialResolution: financialResolution.nullable(),
+          })
+          .strict(),
+      })
+      .strict(),
+  ])
   .superRefine((event, ctx) => {
     const invalid = () => ctx.addIssue({ code: z.ZodIssueCode.custom, message: EVENT.INVALID });
     const { reservation } = event;
@@ -29,19 +75,48 @@ export const inventoryOwnerEventSchema = z
       event.resourceId !== reservation.checkoutId ||
       event.resourceVersion !== reservation.version ||
       !canonicalInventoryDate.safeParse(reservation.expiresAt).success ||
-      new Date(event.observedAt) < new Date(reservation.expiresAt)
+      (event.eventKind === EVENT.EXPIRY &&
+        new Date(event.observedAt) < new Date(reservation.expiresAt))
     )
       invalid();
-    const ids = event.expiredReservationIds;
+    const ids =
+      event.eventKind === EVENT.EXPIRY
+        ? event.expiredReservationIds
+        : event.eventKind === EVENT.COMMITTED
+          ? event.committedReservationIds
+          : event.releasedReservationIds;
+    const state =
+      event.eventKind === EVENT.EXPIRY
+        ? 'EXPIRED'
+        : event.eventKind === EVENT.COMMITTED
+          ? 'COMMITTED'
+          : 'RELEASED';
     if (
       new Set(ids).size !== ids.length ||
       [...ids].sort().some((id, index) => id !== ids[index]) ||
       ids.some(
         (id) =>
-          !reservation.lines.some((line) => line.reservationId === id && line.state === 'EXPIRED'),
+          !reservation.lines.some((line) => line.reservationId === id && line.state === state),
       )
     )
       invalid();
+    for (const line of reservation.lines.filter((line) => ids.includes(line.reservationId))) {
+      if (
+        event.eventKind === EVENT.COMMITTED &&
+        (line.paymentScopeId !== event.commit.paymentScopeId || line.fence !== event.commit.fence)
+      )
+        invalid();
+      if (event.eventKind === EVENT.RELEASED && line.paymentScopeId !== null) {
+        const proof = event.release.financialResolution;
+        if (
+          !proof ||
+          proof.paymentScopeId !== line.paymentScopeId ||
+          proof.fence !== line.fence ||
+          proof.scopeClosedAt > event.observedAt
+        )
+          invalid();
+      }
+    }
     const movements = new Set<number>(),
       reservationIds = new Set<string>(),
       lineIds = new Set<string>();

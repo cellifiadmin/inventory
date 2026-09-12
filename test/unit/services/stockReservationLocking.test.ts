@@ -10,6 +10,13 @@ import { workflowInputHash } from '@/inventory/services/workflows/workflowIdenti
 import type { ReserveScopeRecord } from '@/inventory/services/stockReservationShared';
 import type { ReservationOperation } from '.prisma/inventoryClient';
 
+const mockPersistTerminal = jest
+  .fn<(...args: unknown[]) => Promise<unknown>>()
+  .mockResolvedValue({});
+jest.mock('@/inventory/services/workflows/inventoryTerminalOwnerEventService', () => ({
+  persistReservationTerminalEventInTransaction: (...args: unknown[]) =>
+    mockPersistTerminal(...args),
+}));
 const mockPersistExpiry = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({});
 jest.mock('@/inventory/services/workflows/inventoryOwnerEventService', () => ({
   persistReservationExpiryEventInTransaction: (...args: any[]) => mockPersistExpiry(...args),
@@ -60,7 +67,9 @@ const makeTx = () => ({
       async ({
         data,
       }: {
-        data: Partial<Omit<ReservationRecord, 'revision'>> & { revision: { increment: number } };
+        data: Partial<Omit<ReservationRecord, 'revision'>> & {
+          revision: { increment: number };
+        };
       }) => reservationRecord({ ...data, revision: data.revision.increment }),
     ),
   },
@@ -108,7 +117,9 @@ jest.mock('@/lib/prismaInventory', () => ({
   __esModule: true,
   default: {
     $transaction: (...args: Parameters<typeof mockTransaction>) => mockTransaction(...args),
-    stockReservation: { findMany: (...args: unknown[]) => mockExpiryScan(...args) },
+    stockReservation: {
+      findMany: (...args: unknown[]) => mockExpiryScan(...args),
+    },
   },
 }));
 import { reserveStock as reserveStockImpl } from '@/inventory/services/stockReservationService';
@@ -116,7 +127,10 @@ const reserveStock: typeof reserveStockImpl = (input, tx) => {
   const { operationId, ...body } = input;
   mockScope.reserveOperationId = operationId;
   mockScope.reserveInputHash = workflowInputHash(body);
-  mockScope.lines = input.lines.map((line) => ({ ...mockScope.lines[0], ...line }));
+  mockScope.lines = input.lines.map((line) => ({
+    ...mockScope.lines[0],
+    ...line,
+  }));
   return reserveStockImpl(input, tx);
 };
 import { protectReservations } from '@/inventory/services/reservationProtectionService';
@@ -129,7 +143,12 @@ import {
   withStockTransaction,
 } from '@/inventory/services/stockReservationShared';
 
-const line = { lineId: 'line', accountId: 'seller', sourceInvId: 'item', quantity: 1 };
+const line = {
+  lineId: 'line',
+  accountId: 'seller',
+  sourceInvId: 'item',
+  quantity: 1,
+};
 const input = {
   operationId: 'reserve',
   checkoutId: 'checkout',
@@ -162,7 +181,11 @@ const release = {
   cause: 'cancelled' as const,
 };
 const locked = () =>
-  reservationRecord({ state: 'PAYMENT_LOCKED', paymentScopeId: 'scope', fence: 1 });
+  reservationRecord({
+    state: 'PAYMENT_LOCKED',
+    paymentScopeId: 'scope',
+    fence: 1,
+  });
 const resolution = {
   resolutionId: 'resolution',
   paymentScopeId: 'scope',
@@ -172,6 +195,7 @@ const resolution = {
 };
 
 beforeEach(() => {
+  mockPersistTerminal.mockReset().mockResolvedValue({});
   mockPersistExpiry.mockReset().mockResolvedValue({});
   mockScope = makeScope();
   mockTx = makeTx();
@@ -223,7 +247,10 @@ describe('reservation acceptance and replay', () => {
     mockTx.item.findUnique
       .mockResolvedValueOnce({ id: 20, deletedAt: null })
       .mockResolvedValueOnce({ id: 10, deletedAt: null });
-    const result = await reserveStock({ ...input, lines: [line, { ...line, lineId: 'second' }] });
+    const result = await reserveStock({
+      ...input,
+      lines: [line, { ...line, lineId: 'second' }],
+    });
     const locks = mockTx.$queryRaw.mock.calls.filter(([parts]) =>
       parts.join('').includes('FROM items'),
     );
@@ -300,7 +327,10 @@ describe('reservation acceptance and replay', () => {
     const stored = mockTx.reservationOperation.create.mock.calls[0][0] as {
       data: ReservationOperation;
     };
-    mockTx.reservationOperation.findUnique.mockResolvedValue({ ...stored.data, result: {} });
+    mockTx.reservationOperation.findUnique.mockResolvedValue({
+      ...stored.data,
+      result: {},
+    });
     await expect(reserveStock(input)).rejects.toThrow();
   });
   it('rejects unexplained existing stock effects instead of treating them as a fresh reserve', async () => {
@@ -442,9 +472,15 @@ describe('expiry and transaction failures', () => {
     mockScope.revision = 1;
   });
   it('does nothing when the indexed scan has no ordinary expired holds', async () => {
-    expect(await expireStockReservations()).toEqual({ expiredReservationCount: 0, lines: [] });
+    expect(await expireStockReservations()).toEqual({
+      expiredReservationCount: 0,
+      lines: [],
+    });
     expect(mockExpiryScan).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { state: 'HELD', expiresAt: { lte: now } }, take: 100 }),
+      expect.objectContaining({
+        where: { state: 'HELD', expiresAt: { lte: now } },
+        take: 100,
+      }),
     );
   });
   it('expires a hold and links exactly one release movement', async () => {
@@ -601,7 +637,10 @@ describe('immutable scope guards across lifecycle operations', () => {
       if (change === 'missing') mockScope.lines[0].reservation = null;
       const command =
         change === 'different'
-          ? { ...protection, lines: [{ ...lineage[0], reservationId: 'other' }] }
+          ? {
+              ...protection,
+              lines: [{ ...lineage[0], reservationId: 'other' }],
+            }
           : protection;
       await expect(protectReservations(command)).rejects.toThrow(
         'Whole reserve scope protection required',
@@ -612,7 +651,70 @@ describe('immutable scope guards across lifecycle operations', () => {
     mockScope.state = 'RESERVED';
     mockScope.revision = 1;
     await expect(
-      releaseStock({ ...release, lines: [...lineage, { ...lineage[0], lineId: 'second' }] }),
+      releaseStock({
+        ...release,
+        lines: [...lineage, { ...lineage[0], lineId: 'second' }],
+      }),
     ).rejects.toThrow('Duplicate reservation identity');
+  });
+});
+
+describe('terminal owner event atomic hooks', () => {
+  beforeEach(() => {
+    mockScope.state = 'RESERVED';
+    mockScope.revision = 2;
+    mockScope.protectedRevision = 2;
+    mockTx.stockReservation.findMany.mockResolvedValue([locked()]);
+    mockScope.lines = [
+      { ...mockScope.lines[0], reservation: locked() },
+      {
+        ...mockScope.lines[0],
+        id: 'lower-scope-line',
+        lineId: 'lower',
+        reservation: reservationRecord({ id: 'lower', itemId: 5 }),
+      },
+    ];
+  });
+  it.each(['COMMIT', 'RELEASE'])(
+    'rejects %s when full scope stock lineage is incomplete',
+    async (kind) => {
+      mockScope.lines[1].reservation = null;
+      await expect(
+        kind === 'COMMIT'
+          ? commitStock(commit)
+          : releaseStock({ ...release, financialResolution: resolution }),
+      ).rejects.toThrow('INVENTORY_RESERVE_EVIDENCE_INCONSISTENT');
+      expect(mockTx.movement.create).not.toHaveBeenCalled();
+      expect(mockPersistTerminal).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['COMMIT', 'RELEASE'])(
+    'locks the full scope before subset %s writes and publishes after the operation is recorded',
+    async (kind) => {
+      const result =
+        kind === 'COMMIT'
+          ? await commitStock(commit)
+          : await releaseStock({ ...release, financialResolution: resolution });
+      const calls = mockTx.$queryRaw.mock.calls
+        .map((args, index) => ({
+          sql: args[0].join(''),
+          id: args[1],
+          order: mockTx.$queryRaw.mock.invocationCallOrder[index],
+        }))
+        .filter((x) => x.sql.includes('FROM items'));
+      expect(calls.slice(0, 2).map((x) => x.id)).toEqual([5, 10]);
+      expect(calls[1].order).toBeLessThan(mockTx.movement.create.mock.invocationCallOrder[0]);
+      expect(mockPersistTerminal).toHaveBeenCalledWith(mockTx, {
+        reservationOperationId: kind === 'COMMIT' ? 'commit' : 'release',
+      });
+      expect(mockTx.reservationOperation.create.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPersistTerminal.mock.invocationCallOrder[0],
+      );
+      expect(result.scope.revision).toBe(3);
+    },
+  );
+  it('propagates terminal delivery failure so the outer stock transaction rolls back', async () => {
+    mockPersistTerminal.mockRejectedValueOnce(Error('terminal outbox unavailable'));
+    await expect(commitStock(commit)).rejects.toThrow('terminal outbox unavailable');
   });
 });

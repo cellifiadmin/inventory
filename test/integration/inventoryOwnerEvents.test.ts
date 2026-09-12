@@ -111,6 +111,7 @@ it('commits each expiry with full scope evidence, monotonic revisions and no fab
   expect(rows.map((row) => row.scopeRevision)).toEqual([2, 3, 4]);
   for (const [index, row] of rows.entries()) {
     const event = inventoryOwnerEventSchema.parse(row.payload);
+    if (event.eventKind !== 'INVENTORY_RESERVATION_EXPIRED') throw Error('Expected expiry event');
     expect(row.id).toBe(`${held.scope.id}:revision:${index + 2}`);
     expect(event.reservation.scope).toEqual({ ...held.scope, revision: index + 2 });
     expect(event.reservation.lines).toHaveLength(3);
@@ -157,9 +158,11 @@ it('retains an already released subset without reporting it as a new expiry', as
   await elapsed();
   expect((await expireStockReservations()).expiredReservationCount).toBe(2);
   const rows = await events();
-  expect(rows.map((row) => row.scopeRevision)).toEqual([3, 4]);
-  for (const row of rows) {
+  expect(rows.map((row) => row.scopeRevision)).toEqual([2, 3, 4]);
+  expect(rows[0].kind).toBe('INVENTORY_RESERVATION_RELEASED');
+  for (const row of rows.slice(1)) {
     const event = inventoryOwnerEventSchema.parse(row.payload);
+    if (event.eventKind !== 'INVENTORY_RESERVATION_EXPIRED') throw Error('Expected expiry event');
     expect(event.expiredReservationIds).not.toContain(held.lines[0].reservationId);
     expect(
       event.reservation.lines.find((line) => line.reservationId === held.lines[0].reservationId)

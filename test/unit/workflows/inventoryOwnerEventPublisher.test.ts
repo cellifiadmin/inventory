@@ -1,3 +1,7 @@
+import {
+  committedOwnerEventFixture,
+  releasedOwnerEventFixture,
+} from '../../helpers/reservationTerminalOwnerEventFixture';
 import { beforeEach, expect, it, jest } from '@jest/globals';
 import type { InventoryOwnerEventDelivery } from '@/inventory/services/workflows/inventoryOwnerEventPublisher';
 import { reservationOwnerEventFixture } from '../../helpers/reservationOwnerEventFixture';
@@ -5,10 +9,14 @@ import type { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 const mockSend = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.mock('@aws-sdk/client-sqs', () => ({
-  SQSClient: jest.fn(() => ({ send: (...args: unknown[]) => mockSend(...args) })),
+  SQSClient: jest.fn(() => ({
+    send: (...args: unknown[]) => mockSend(...args),
+  })),
   SendMessageCommand: jest.fn((input: unknown) => ({ input })),
 }));
-jest.mock('@/lib/awsClientConfig', () => ({ resolveAwsClientConfig: () => ({}) }));
+jest.mock('@/lib/awsClientConfig', () => ({
+  resolveAwsClientConfig: () => ({}),
+}));
 const asyncMock = <T>(value: T) =>
   jest.fn<(...args: unknown[]) => Promise<T>>().mockResolvedValue(value);
 const now = new Date('2030-01-01');
@@ -173,7 +181,9 @@ it('does not convert an accepted send followed by acknowledgement failure into a
   expect(mockSend).toHaveBeenCalledTimes(1);
   expect(mockTx.inventoryOwnerEventOutbox.updateMany).toHaveBeenCalledTimes(1);
   expect(mockTx.inventoryOwnerEventOutbox.updateMany).toHaveBeenCalledWith(
-    expect.objectContaining({ data: expect.objectContaining({ state: 'DELIVERED' }) }),
+    expect.objectContaining({
+      data: expect.objectContaining({ state: 'DELIVERED' }),
+    }),
   );
 });
 it('retries provider failures and limits successful batches', async () => {
@@ -184,7 +194,9 @@ it('retries provider failures and limits successful batches', async () => {
     }),
   ).toEqual({ delivered: 0 });
   expect(mockTx.inventoryOwnerEventOutbox.updateMany).toHaveBeenCalledWith(
-    expect.objectContaining({ data: expect.objectContaining({ state: 'PENDING' }) }),
+    expect.objectContaining({
+      data: expect.objectContaining({ state: 'PENDING' }),
+    }),
   );
   mockTx.$queryRaw.mockResolvedValue([{ id: 'delivery' }]);
   expect(await publishInventoryOwnerEvents()).toEqual({ delivered: 20 });
@@ -209,7 +221,9 @@ it('requires a nonempty SQS message identity before acknowledging delivery', asy
   mockTx.$queryRaw.mockResolvedValueOnce([{ id: 'delivery' }]).mockResolvedValue([]);
   expect(await publishInventoryOwnerEvents()).toEqual({ delivered: 0 });
   expect(mockTx.inventoryOwnerEventOutbox.updateMany).toHaveBeenCalledWith(
-    expect.objectContaining({ data: expect.objectContaining({ state: 'PENDING' }) }),
+    expect.objectContaining({
+      data: expect.objectContaining({ state: 'PENDING' }),
+    }),
   );
 });
 
@@ -222,3 +236,25 @@ it.each([
   await expect(sendInventoryOwnerEvent(row())).rejects.toThrow('DELIVERY_CONFIGURATION');
   expect(mockSend).not.toHaveBeenCalled();
 });
+
+it.each([committedOwnerEventFixture, releasedOwnerEventFixture])(
+  'sends immutable terminal facts on the existing Standard Commerce result route',
+  async (fixture) => {
+    const terminal = fixture();
+    const delivery = row();
+    delivery.eventId = terminal.eventId;
+    delivery.event = {
+      ...delivery.event,
+      id: terminal.eventId,
+      scopeRevision: terminal.reservation.scope.revision,
+      kind: terminal.eventKind,
+      payload: terminal,
+      payloadHash: workflowInputHash(terminal),
+      observedAt: new Date(terminal.observedAt),
+    };
+    await sendInventoryOwnerEvent(delivery);
+    const command = (mockSend.mock.calls[0][0] as SendMessageCommand).input;
+    expect(Object.keys(command).sort()).toEqual(['MessageBody', 'QueueUrl']);
+    expect(JSON.parse(command.MessageBody!)).toEqual(terminal);
+  },
+);

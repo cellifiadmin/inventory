@@ -44,6 +44,9 @@ describe('one immutable reserve scope and authoritative observations in PostgreS
         },
       })
     ).map((row) => row.operationId);
+    await prisma.inventoryOwnerEventRecovery.deleteMany({ where: { event: { checkoutId } } });
+    await prisma.inventoryOwnerEventOutbox.deleteMany({ where: { event: { checkoutId } } });
+    await prisma.inventoryOwnerEvent.deleteMany({ where: { checkoutId } });
     await prisma.inventoryResultOutbox.deleteMany({ where: { operationId: { in: ids } } });
     await prisma.inventoryInboxEvent.deleteMany({ where: { operationId: { in: ids } } });
     await prisma.inventoryCommandRecovery.deleteMany({ where: { operationId: { in: ids } } });

@@ -119,11 +119,9 @@ describe('typed reservation lifecycle against PostgreSQL', () => {
     );
 
   it('preserves protected stock after expiry and commits exactly once after a lost response', async () => {
+    expiresAt = new Date((await databaseNow(prisma)).getTime() + 500).toISOString();
     const protectedHold = await protect();
-    await prisma.stockReservation.update({
-      where: { id: protectedHold.lines[0].reservationId },
-      data: { expiresAt: new Date('2000-01-01') },
-    });
+    await prisma.$queryRaw`SELECT 1 AS waited FROM pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM (${new Date(expiresAt)}::timestamptz - clock_timestamp())) + 0.005))`;
     expect(
       (await expireStockReservations()).lines.find(
         (line) => line.reservationId === protectedHold.lines[0].reservationId,

@@ -117,7 +117,9 @@ export const readReservationScope = (
   version: number,
 ) =>
   tx.inventoryReserveScope.findUnique({
-    where: { checkoutId_checkoutVersion: { checkoutId, checkoutVersion: version } },
+    where: {
+      checkoutId_checkoutVersion: { checkoutId, checkoutVersion: version },
+    },
     include: reserveScopeInclude,
   });
 export const reservationScopeIdentity = (
@@ -133,19 +135,29 @@ export const reservationScopeIdentity = (
   reserveInputHash: scope.reserveInputHash,
 });
 export const RESERVE_EVIDENCE_INCONSISTENT = 'INVENTORY_RESERVE_EVIDENCE_INCONSISTENT';
-export type ReservationEffect = { snapshot: Omit<ReservationResult, 'scope'>; changed: boolean };
+export type ReservationEffect = {
+  snapshot: Omit<ReservationResult, 'scope'>;
+  changed: boolean;
+};
 export const executeReservationOperation = async (
   kind: ReservationOperationKind,
-  input: { operationId: string; checkoutId: string; version: number } & Prisma.InputJsonObject,
+  input: {
+    operationId: string;
+    checkoutId: string;
+    version: number;
+  } & Prisma.InputJsonObject,
   work: (tx: InventoryStockTransaction, scope: ReserveScopeRecord) => Promise<ReservationEffect>,
   transaction?: InventoryStockTransaction,
+  afterChange?: (tx: InventoryStockTransaction, result: ReservationResult) => Promise<unknown>,
 ): Promise<ReservationResult> =>
   withStockTransaction(async (tx) => {
     await lockReservationScope(tx, input.checkoutId, input.version);
     const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
     const operationLock = JSON.stringify(['inventory-operation', input.operationId]);
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${operationLock}, 0))`;
-    const previous = await tx.reservationOperation.findUnique({ where: { id: input.operationId } });
+    const previous = await tx.reservationOperation.findUnique({
+      where: { id: input.operationId },
+    });
     if (previous) {
       if (previous.kind !== kind || previous.inputFingerprint !== fingerprint)
         throw createError(StatusCodes.CONFLICT, 'Reservation operation input changed');
@@ -214,6 +226,7 @@ export const executeReservationOperation = async (
         result,
       },
     });
+    if (effect.changed && afterChange) await afterChange(tx, result);
     return result;
   }, transaction);
 

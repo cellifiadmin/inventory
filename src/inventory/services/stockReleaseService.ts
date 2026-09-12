@@ -1,3 +1,4 @@
+import { persistReservationTerminalEventInTransaction } from '@/inventory/services/workflows/inventoryTerminalOwnerEventService';
 import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
 import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
@@ -9,6 +10,8 @@ import {
 import {
   databaseNow,
   executeReservationOperation,
+  lockStockItems,
+  RESERVE_EVIDENCE_INCONSISTENT,
   loadReservationLines,
   reservationResult,
   updateReservation,
@@ -23,7 +26,13 @@ export const releaseStock = async (
   return executeReservationOperation(
     ReservationOperationKind.RELEASE,
     input,
-    async (tx) => {
+    async (tx, scope) => {
+      if (scope.lines.some((line) => !line.reservation))
+        throw new Error(RESERVE_EVIDENCE_INCONSISTENT);
+      await lockStockItems(
+        tx,
+        scope.lines.map((line) => line.reservation!.itemId),
+      );
       const records = await loadReservationLines(tx, input);
       const now = await databaseNow(tx);
       for (const record of records) {
@@ -77,5 +86,9 @@ export const releaseStock = async (
       };
     },
     transaction,
+    (tx) =>
+      persistReservationTerminalEventInTransaction(tx, {
+        reservationOperationId: input.operationId,
+      }),
   );
 };

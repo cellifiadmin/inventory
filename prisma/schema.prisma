@@ -546,6 +546,8 @@ model InventoryReserveNoEffectClosure {
 
 
 enum InventoryOwnerEventKind {
+  INVENTORY_RESERVATION_COMMITTED
+  INVENTORY_RESERVATION_RELEASED
   INVENTORY_RESERVATION_EXPIRED
 }
 

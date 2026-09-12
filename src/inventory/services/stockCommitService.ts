@@ -1,3 +1,4 @@
+import { persistReservationTerminalEventInTransaction } from '@/inventory/services/workflows/inventoryTerminalOwnerEventService';
 import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
 import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
@@ -8,6 +9,8 @@ import {
 } from '@/inventory/types/stockReservationCommands';
 import {
   executeReservationOperation,
+  lockStockItems,
+  RESERVE_EVIDENCE_INCONSISTENT,
   loadReservationLines,
   reservationResult,
   updateReservation,
@@ -22,7 +25,13 @@ export const commitStock = async (
   return executeReservationOperation(
     ReservationOperationKind.COMMIT,
     input,
-    async (tx) => {
+    async (tx, scope) => {
+      if (scope.lines.some((line) => !line.reservation))
+        throw new Error(RESERVE_EVIDENCE_INCONSISTENT);
+      await lockStockItems(
+        tx,
+        scope.lines.map((line) => line.reservation!.itemId),
+      );
       const records = await loadReservationLines(tx, input);
       for (const record of records) {
         if (
@@ -35,12 +44,23 @@ export const commitStock = async (
       }
       const committed = [];
       for (const record of records) {
-        const data = { itemId: record.itemId, quantity: record.heldMovement.quantity };
+        const data = {
+          itemId: record.itemId,
+          quantity: record.heldMovement.quantity,
+        };
         const released = await tx.movement.create({
-          data: { ...data, direction: MovementDirection.IN, reason: MovementReason.RELEASED },
+          data: {
+            ...data,
+            direction: MovementDirection.IN,
+            reason: MovementReason.RELEASED,
+          },
         });
         const sold = await tx.movement.create({
-          data: { ...data, direction: MovementDirection.OUT, reason: MovementReason.SOLD },
+          data: {
+            ...data,
+            direction: MovementDirection.OUT,
+            reason: MovementReason.SOLD,
+          },
         });
         committed.push(
           await updateReservation(tx, record, {
@@ -59,5 +79,9 @@ export const commitStock = async (
       };
     },
     transaction,
+    (tx) =>
+      persistReservationTerminalEventInTransaction(tx, {
+        reservationOperationId: input.operationId,
+      }),
   );
 };
