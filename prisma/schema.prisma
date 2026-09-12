@@ -303,6 +303,7 @@ enum ReservationOperationKind {
 
 model StockReservation {
   id                    String @id @default(uuid())
+  scopeLineId           String @unique @map("scope_line_id")
   checkoutId            String @map("checkout_id")
   checkoutVersion       Int @map("checkout_version")
   lineId                String @map("line_id")
@@ -323,11 +324,13 @@ model StockReservation {
   soldMovementId        Int? @unique @map("sold_movement_id")
   createdAt             DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
   updatedAt             DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
+  scopeLine             InventoryReserveScopeLine @relation(fields: [scopeLineId, checkoutId, checkoutVersion, lineId], references: [id, checkoutId, checkoutVersion, lineId], onDelete: Restrict, onUpdate: Restrict)
   item                  Item @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   heldMovement          Movement @relation("ReservationHold", fields: [heldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
   releasedMovement      Movement? @relation("ReservationRelease", fields: [releasedMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
   soldMovement          Movement? @relation("ReservationSale", fields: [soldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
 
+  @@unique([scopeLineId, checkoutId, checkoutVersion, lineId])
   @@unique([heldMovementId, itemId])
   @@unique([releasedMovementId, itemId])
   @@unique([soldMovementId, itemId])
@@ -390,6 +393,7 @@ model InventoryCommand {
   inboxEvents       InventoryInboxEvent[]
   resultOutbox      InventoryResultOutbox[]
   recoveries        InventoryCommandRecovery[]
+  reserveClosures   InventoryReserveNoEffectClosure[]
 
   @@index([resourceType, resourceId, resourceVersion])
   @@index([state, receivedAt])
@@ -466,4 +470,74 @@ model InventoryCommandRecovery {
   @@unique([operationId, reason])
   @@index([resolvedAt, dueAt])
   @@map("inventory_command_recoveries")
+}
+
+
+enum InventoryReserveScopeState {
+  CLAIMED
+  RESERVED
+  CLOSED_NO_EFFECT
+}
+
+enum InventoryReserveClosureReason {
+  RESERVE_REJECTED
+  RESERVE_DEADLINE_EXPIRED
+  RESERVE_EXPIRED
+  CANCELLED
+}
+
+model InventoryReserveScope {
+  id                        String @id @default(uuid())
+  checkoutId                String @map("checkout_id")
+  checkoutVersion           Int @map("checkout_version")
+  reserveOperationId        String @unique @map("reserve_operation_id")
+  reserveOperationInputHash String @map("reserve_operation_input_hash")
+  reserveInputHash          String @map("reserve_input_hash")
+  originalDescriptorHash    String @map("original_descriptor_hash")
+  originalDescriptor        Json @map("original_descriptor")
+  expiresAt                 DateTime @map("expires_at") @inventoryDb.Timestamptz(3)
+  state                     InventoryReserveScopeState @default(CLAIMED)
+  revision                  Int @default(0)
+  protectedRevision         Int? @map("protected_revision")
+  createdAt                 DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
+  lines                     InventoryReserveScopeLine[]
+  noEffectClosure           InventoryReserveNoEffectClosure?
+
+  @@unique([checkoutId, checkoutVersion])
+  @@unique([id, checkoutId, checkoutVersion])
+  @@index([state, createdAt])
+  @@map("inventory_reserve_scopes")
+}
+
+model InventoryReserveScopeLine {
+  id              String @id @default(uuid())
+  scopeId         String @map("scope_id")
+  checkoutId      String @map("checkout_id")
+  checkoutVersion Int @map("checkout_version")
+  lineId          String @map("line_id")
+  accountId       String @map("account_id")
+  sourceInvId     String @map("source_inv_id")
+  quantity        Int
+  scope           InventoryReserveScope @relation(fields: [scopeId, checkoutId, checkoutVersion], references: [id, checkoutId, checkoutVersion], onDelete: Restrict, onUpdate: Restrict)
+  reservation     StockReservation?
+
+  @@unique([scopeId, lineId])
+  @@unique([id, checkoutId, checkoutVersion, lineId])
+  @@index([checkoutId, checkoutVersion])
+  @@map("inventory_reserve_scope_lines")
+}
+
+model InventoryReserveNoEffectClosure {
+  id                     String @id @default(uuid())
+  scopeId                String @unique @map("scope_id")
+  authorizingOperationId String @map("authorizing_operation_id")
+  reason                 InventoryReserveClosureReason
+  closedAt               DateTime @map("closed_at") @inventoryDb.Timestamptz(3)
+  evidenceHash           String @map("evidence_hash")
+  scope                  InventoryReserveScope @relation(fields: [scopeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  command                InventoryCommand @relation(fields: [authorizingOperationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([authorizingOperationId])
+  @@map("inventory_reserve_no_effect_closures")
 }
