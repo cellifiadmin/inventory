@@ -50,6 +50,7 @@ Listing photo normalization contract:
 Stock ownership and workflow contract:
 - Immutable movements remain the sole quantity truth. Typed `StockReservation` records hold checkout/version/line identity, expiry, revision, payment scope and fence, with database foreign keys to their held/released/sold movements; no movement metadata fallback is used.
 - Commerce reserves the entire frozen checkout/version line set in one atomic `INVENTORY_RESERVE` command. Same-item lines are aggregated before availability checks. All quantity writers lock distinct item rows in sorted order.
+- Every reserve command supplies its frozen `expiresAt` as canonical UTC milliseconds. Inventory preserves that deadline, checks it against the database clock after stock locks and before each line write, and rejects deadline changes for an existing checkout/version. An elapsed later line rolls back the entire reservation. There is no Inventory timeout default or environment setting; Commerce must derive the deadline from its approved admission policy. Completed operation replay returns historical evidence, not a renewed hold.
 - `INVENTORY_PROTECT` moves ordinary holds to `PAYMENT_LOCKED` under a payment scope and fence. Protected stock never expires automatically. Fulfillment's trusted command queue can commit an exact seller subset using reservation IDs, current revisions, payment identity, purchase identity and commercial seller-order lineage.
 - Commit writes `IN + RELEASED` and `OUT + SOLD` atomically. Release of protected stock requires explicit closed-payment evidence and a newer fence; unknown payment outcomes never release stock. Expiry scans only unprotected `HELD` rows and rechecks state under item locks using the database clock.
 - The strict `WORKFLOW_COMMAND` envelope carries the originating audit actor and immutable owner operation/execution/resource scope. Producer authority comes from exact configured Standard SQS source ARNs; malformed, equal or FIFO queue configuration is rejected before any record effects. Canonical SHA256 matches the owner's workflow kind, resource, step, participant, input and deadline scope.
@@ -96,7 +97,7 @@ Current local verification:
 Env files contract:
 - tracked stage files are `.env.local`, `.env.test`, `.env.development`, and `.env.production`
 - `.env.local` / `.env.test` keep direct inventory-local values, including inventory-owned queue wiring and local object-storage settings
-- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including owner command/result queue bindings and `STOCK_RESERVATION_TIMEOUT_MINUTES` from inventory-owned SSM
+- `.env.development` / `.env.production` keep deterministic direct SSM and Secrets Manager references under the inventory runtime namespace, including owner command/result queue bindings
 - inventory env files must stay inventory-scoped and may carry only inventory-owned runtime variables and inventory-owned integration values such as the offers stock-sync queue settings
 - no committed shared `inventory/.env` should be used as the source of truth
 

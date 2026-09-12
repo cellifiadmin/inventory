@@ -12,6 +12,10 @@ const lines = z.array(lineage).min(1).refine(distinctLines, 'Duplicate stock lin
 
 export const reserveStockSchema = z.object({
   ...scope,
+  expiresAt: z.string().datetime({ precision: 3 }).refine(value => {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) && date.toISOString() === value;
+  }, 'Reservation expiry must be canonical UTC milliseconds'),
   lines: z.array(z.object({ lineId: identity, accountId: identity, sourceInvId: identity,
     quantity: z.number().int().positive() }).strict()).min(1)
     .refine(distinctLines, 'Duplicate stock line identity'),

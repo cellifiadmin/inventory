@@ -8,13 +8,17 @@ import { commitStock } from '@/inventory/services/stockCommitService';
 import { releaseStock } from '@/inventory/services/stockReleaseService';
 import { expireStockReservations } from '@/inventory/services/stockReservationExpiryService';
 import { createStockMovement } from '@/services/stockService';
+import { SYNTHETIC_HOLD_DURATION_MS } from '../helpers/reservationFixtures';
+import { databaseNow } from '@/inventory/services/stockReservationShared';
 import { reserveStock } from '@/inventory/services/stockReservationService';
 
 describe('typed reservation lifecycle against PostgreSQL', () => {
   let itemId: number;
   let itemCode: string;
+  let expiresAt: string;
   const seller = 'protection-test-seller';
   beforeEach(async () => {
+    expiresAt = new Date((await databaseNow(prisma)).getTime() + SYNTHETIC_HOLD_DURATION_MS).toISOString();
     itemCode = `protection-test-${randomUUID()}`;
     const item = await prisma.item.create({ data: { kind: 'STOCK', itemCode, sellerIdentifier: seller } });
     itemId = item.id;
@@ -29,14 +33,14 @@ describe('typed reservation lifecycle against PostgreSQL', () => {
   afterAll(async () => prisma.$disconnect());
 
   it('returns typed reservation identity and an optimistic revision', async () => {
-    const reservation = await reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2,
+    const reservation = await reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2, expiresAt,
       lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 1 }] });
     expect(reservation.lines[0]).toEqual(expect.objectContaining({
       reservationId: expect.any(String), revision: 0, state: 'HELD',
     }));
   });
 
-  const reserve = () => reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2,
+  const reserve = () => reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2, expiresAt,
     lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 2 }] });
   const protect = async () => {
     const hold = await reserve();
@@ -109,7 +113,7 @@ describe('typed reservation lifecycle against PostgreSQL', () => {
   });
   it('rolls back reservation and command result with an enclosing inbox transaction failure', async () => {
     await expect(prisma.$transaction(async tx => {
-      await reserveStock({ operationId: 'rollback-operation', checkoutId: itemCode, version: 2,
+      await reserveStock({ operationId: 'rollback-operation', checkoutId: itemCode, version: 2, expiresAt,
         lines: [{ lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 2 }] }, tx);
       throw new Error('outbox persistence failed');
     })).rejects.toThrow('outbox persistence failed');
@@ -120,7 +124,7 @@ describe('typed reservation lifecycle against PostgreSQL', () => {
     const other = await prisma.item.create({ data: { kind: 'STOCK', itemCode: `${itemCode}-other`, sellerIdentifier: 'other-seller' } });
     try {
       await prisma.movement.create({ data: { itemId: other.id, quantity: 1, direction: 'IN', reason: 'STOCKED' } });
-      const held = await reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2, lines: [
+      const held = await reserveStock({ operationId: randomUUID(), checkoutId: itemCode, version: 2, expiresAt, lines: [
         { lineId: 'line', accountId: seller, sourceInvId: itemCode, quantity: 2 },
         { lineId: 'other-line', accountId: 'other-seller', sourceInvId: `${itemCode}-other`, quantity: 1 },
       ] });

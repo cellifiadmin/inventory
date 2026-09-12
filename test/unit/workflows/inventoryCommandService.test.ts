@@ -23,7 +23,7 @@ jest.mock('@/inventory/services/stockReservationShared', () => ({ databaseNow: a
 import { consumeInventoryCommand } from '@/inventory/services/workflows/inventoryCommandService';
 import { workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 import { inventoryCommandEnvelopeSchema, inventoryResultEnvelopeSchema } from '@/inventory/types/inventoryWorkflowEnvelope';
-const reserve = () => rehashCommand({ ...commandEnvelope('INVENTORY_RESERVE', { checkoutId: 'checkout', version: 1,
+const reserve = () => rehashCommand({ ...commandEnvelope('INVENTORY_RESERVE', { checkoutId: 'checkout', version: 1, expiresAt: '2030-01-01T00:15:00.000Z',
   lines: [{ lineId: 'line', accountId: 'seller', sourceInvId: 'item', quantity: 1 }] }), deadlineAt: '2031-01-01T00:00:00.000Z' });
 let event = reserve();
 const useReceipt = () => mockTx.inventoryInboxEvent.findUniqueOrThrow.mockResolvedValue({ operationId: event.operationId, payloadHash: workflowInputHash(event) });

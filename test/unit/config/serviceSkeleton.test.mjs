@@ -180,3 +180,12 @@ test('inventory commits scoped env files for every supported environment', () =>
     /^AUTH_SHARED_AUTHORIZER_ARN=\/cellifi\/prod\/inventory\/runtime\/auth-shared-authorizer-arn$/m,
   );
 });
+
+
+test('reservation expiry is supplied by the admitted command, without Inventory timeout defaults', () => {
+  for (const file of ['serverless.yml', 'serverless.runtime.local.yml', 'serverless.runtime.dev.yml',
+    'serverless.runtime.development.yml', 'serverless.runtime.test.yml', 'serverless.runtime.production.yml',
+    '.env.example', '.env.local', '.env.test', '.env.development', '.env.production']) {
+    assert.doesNotMatch(readRepoFile(file), /STOCK_RESERVATION_TIMEOUT_MINUTES/);
+  }
+});

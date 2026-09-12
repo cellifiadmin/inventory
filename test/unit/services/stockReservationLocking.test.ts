@@ -32,10 +32,10 @@ import { protectReservations } from '@/inventory/services/reservationProtectionS
 import { commitStock } from '@/inventory/services/stockCommitService';
 import { releaseStock } from '@/inventory/services/stockReleaseService';
 import { expireStockReservations } from '@/inventory/services/stockReservationExpiryService';
-import { databaseNow, reservationResult, resolveStockReservationTimeoutMinutes, withStockTransaction } from '@/inventory/services/stockReservationShared';
+import { databaseNow, reservationResult, withStockTransaction } from '@/inventory/services/stockReservationShared';
 
 const line = { lineId: 'line', accountId: 'seller', sourceInvId: 'item', quantity: 1 };
-const input = { operationId: 'reserve', checkoutId: 'checkout', version: 1, lines: [line] };
+const input = { operationId: 'reserve', checkoutId: 'checkout', version: 1, expiresAt: '2030-01-01T00:15:00.000Z', lines: [line] };
 const lineage = [{ reservationId: 'reservation', lineId: 'line', revision: 0 }];
 const protection = { operationId: 'protect', checkoutId: 'checkout', version: 1, paymentScopeId: 'scope', fence: 1, lines: lineage };
 const commit = { ...protection, operationId: 'commit', paymentId: 'payment', purchaseId: 'purchase', commerceSellerOrderId: 'order' };
@@ -45,10 +45,38 @@ const resolution = { resolutionId: 'resolution', paymentScopeId: 'scope', fence:
 
 beforeEach(() => {
   mockTx = makeTx(); mockTransaction.mockReset().mockImplementation(work => work(mockTx));
-  mockExpiryScan.mockReset().mockResolvedValue([]); process.env.STOCK_RESERVATION_TIMEOUT_MINUTES = '15';
+  mockExpiryScan.mockReset().mockResolvedValue([]);
 });
 
 describe('reservation acceptance and replay', () => {
+  it('preserves the caller expiry instead of the environment duration', async () => {
+    const expiresAt = '2030-01-01T00:07:12.345Z';
+    const result = await reserveStock({ ...input, expiresAt } as any);
+    expect(result.expiresAt).toBe(expiresAt);
+    expect(result.lines.every(line => line.expiresAt === expiresAt)).toBe(true);
+  });
+  it.each(['2030-01-01T00:00:00.000Z', '2029-12-31T23:59:59.999Z'])('rejects elapsed incoming expiry %s without new holds', async expiresAt => {
+    await expect(reserveStock({ ...input, expiresAt } as any)).rejects.toThrow('Reservation expiry has elapsed');
+    expect(mockTx.movement.create).not.toHaveBeenCalled();
+    expect(mockTx.stockReservation.create).not.toHaveBeenCalled();
+    expect(mockTx.reservationOperation.create).not.toHaveBeenCalled();
+  });
+  it('rechecks expiry after ledger reads before creating a hold', async () => {
+    let clockReads = 0;
+    mockTx.$queryRaw.mockImplementation(async (parts, ...values) => {
+      if (parts.join('').includes('clock_timestamp')) return [{ now: ++clockReads === 1 ? now : new Date(input.expiresAt) }];
+      return parts.join('').includes('FROM items') ? [{ id: values[0] }] : [];
+    });
+    await expect(reserveStock(input)).rejects.toThrow('Reservation expiry has elapsed');
+    expect(mockTx.movement.create).not.toHaveBeenCalled();
+    expect(mockTx.reservationOperation.create).not.toHaveBeenCalled();
+  });
+  it('rejects a different expiry under a new operation for the same checkout version', async () => {
+    mockTx.stockReservation.findMany.mockResolvedValue([reservationRecord()]);
+    await expect(reserveStock({ ...input, operationId: 'another', expiresAt: '2030-01-01T01:00:00.000Z' } as any))
+      .rejects.toThrow('Reservation expiry changed');
+    expect(mockTx.movement.create).not.toHaveBeenCalled();
+  });
   it('locks each stock item in ascending order before reading the ledger', async () => {
     mockTx.item.findUnique.mockResolvedValueOnce({ id: 20, deletedAt: null }).mockResolvedValueOnce({ id: 10, deletedAt: null });
     const result = await reserveStock({ ...input, lines: [line, { ...line, lineId: 'second' }] });
@@ -82,9 +110,14 @@ describe('reservation acceptance and replay', () => {
   });
   it('returns identical durable command results without reading stock again', async () => {
     const first = await reserveStock(input);
+    const clockReads = mockTx.$queryRaw.mock.calls.filter(([parts]) => parts.join('').includes('clock_timestamp')).length;
     const stored = mockTx.reservationOperation.create.mock.calls[0][0] as { data: ReservationOperation };
     mockTx.reservationOperation.findUnique.mockResolvedValue(stored.data);
+    // Completed operation evidence is replayed even after the current hold state/clock changes.
+    mockTx.$queryRaw.mockResolvedValue([{ now: new Date('2031-01-01') }]);
     expect(await reserveStock(input)).toEqual(first);
+    expect(mockTx.$queryRaw.mock.calls.filter(([parts]) => parts.join('').includes('clock_timestamp'))).toHaveLength(clockReads);
+    await expect(reserveStock({ ...input, expiresAt: '2030-01-01T00:16:00.000Z' })).rejects.toThrow('Reservation operation input changed');
     expect(mockTx.movement.create).toHaveBeenCalledTimes(1);
     await expect(reserveStock({ ...input, lines: [{ ...line, quantity: 2 }] })).rejects.toThrow('Reservation operation input changed');
     await expect(protectReservations({ ...protection, operationId: input.operationId })).rejects.toThrow('Reservation operation input changed');
@@ -221,9 +254,4 @@ describe('expiry and transaction failures', () => {
     await expect(withStockTransaction(databaseNow)).rejects.toBe(error);
     expect(mockTransaction).toHaveBeenCalledTimes(1);
   });
-  it.each(['', '0', '-1', '1.5', 'abc', '  '])('uses the configured default for invalid duration %p', value => {
-    process.env.STOCK_RESERVATION_TIMEOUT_MINUTES = value;
-    expect(resolveStockReservationTimeoutMinutes()).toBe(15);
-  });
-  it('uses a valid duration', () => { process.env.STOCK_RESERVATION_TIMEOUT_MINUTES = '20'; expect(resolveStockReservationTimeoutMinutes()).toBe(20); });
 });

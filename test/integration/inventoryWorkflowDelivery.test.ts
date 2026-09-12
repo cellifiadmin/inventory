@@ -6,6 +6,7 @@ import { consumeInventoryCommand, consumeInventoryCommandInTransaction } from '@
 import { claimInventoryResult, settleInventoryResult, publishInventoryResults } from '@/inventory/services/workflows/inventoryResultPublisher';
 import { databaseNow } from '@/inventory/services/stockReservationShared';
 import { expireStockReservations } from '@/inventory/services/stockReservationExpiryService';
+import { SYNTHETIC_HOLD_DURATION_MS } from '../helpers/reservationFixtures';
 import { commandEnvelope, rehashCommand } from '../helpers/inventoryWorkflowFixtures';
 import type { InventoryCommandEnvelope } from '@/inventory/types/inventoryWorkflowEnvelope';
 
@@ -17,7 +18,7 @@ describe('durable Inventory workflow transactions', () => {
     itemCode = `workflow-${randomUUID()}`;
     itemId = (await prisma.item.create({ data: { itemCode, kind: 'STOCK', sellerIdentifier: 'seller' } })).id;
     await prisma.movement.create({ data: { itemId, direction: 'IN', reason: 'STOCKED', quantity: 2 } });
-    command = commandEnvelope('INVENTORY_RESERVE', { checkoutId: itemCode, version: 1, lines: [{ lineId: 'line', accountId: 'seller', sourceInvId: itemCode, quantity: 2 }] });
+    command = commandEnvelope('INVENTORY_RESERVE', { checkoutId: itemCode, version: 1, expiresAt: new Date((await databaseNow(prisma)).getTime() + SYNTHETIC_HOLD_DURATION_MS).toISOString(), lines: [{ lineId: 'line', accountId: 'seller', sourceInvId: itemCode, quantity: 2 }] });
   });
   afterEach(async () => {
     const ids = (await prisma.inventoryCommand.findMany({ where: { OR: [{ resourceId: itemCode }, { immutableEnvelope: { path: ['input', 'checkoutId'], equals: itemCode } }] }, select: { operationId: true } })).map(row => row.operationId);
@@ -32,6 +33,16 @@ describe('durable Inventory workflow transactions', () => {
   });
   afterAll(async () => prisma.$disconnect());
   const consume = (event = command) => consumeInventoryCommand(event, event.producer);
+  it('records definitive no-effect failure when the hold expires before a still-valid command deadline', async () => {
+    if (command.command !== 'INVENTORY_RESERVE') throw new Error('fixture');
+    command = rehashCommand({ ...command, input: { ...command.input, expiresAt: (await databaseNow(prisma)).toISOString() } });
+    const result = await consume();
+    expect(result).toMatchObject({ outcome: 'FAILED', result: { errorCode: 'INVENTORY_RESERVATION_REJECTED', recoveryRequired: false } });
+    expect(await consume()).toEqual(result);
+    expect(await prisma.stockReservation.count({ where: { itemId } })).toBe(0);
+    expect(await prisma.movement.count({ where: { itemId, reason: 'RESERVED' } })).toBe(0);
+    expect(await prisma.inventoryCommand.count({ where: { operationId: command.operationId } })).toBe(1);
+  });
   it('atomically records one hold and result under concurrent exact replay', async () => {
     const [first, second] = await Promise.all([consume(), consume()]);
     expect(first).toEqual(second);

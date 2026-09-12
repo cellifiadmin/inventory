@@ -1,4 +1,4 @@
-import { DEFAULT_STOCK_RESERVATION_TIMEOUT_MINUTES, STOCK_TRANSACTION_MAX_ATTEMPTS } from '@/constants/reservations';
+import { STOCK_TRANSACTION_MAX_ATTEMPTS } from '@/constants/reservations';
 import { createHash } from 'node:crypto';
 import createError from 'http-errors';
 import { StatusCodes } from 'http-status-codes';
@@ -9,11 +9,6 @@ import { reservationResultSchema, type ReservationResult, type ReservationLineag
 
 export type InventoryStockTransaction = Omit<typeof prismaInventory, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 export type ReservationRecord = Prisma.StockReservationGetPayload<{ include: { heldMovement: true } }>;
-export const resolveStockReservationTimeoutMinutes = (): number => {
-  const value = Number(process.env.STOCK_RESERVATION_TIMEOUT_MINUTES);
-  return Number.isInteger(value) && value > 0 ? value : DEFAULT_STOCK_RESERVATION_TIMEOUT_MINUTES;
-};
-
 export const withStockTransaction = async <T>(
   work: (tx: InventoryStockTransaction) => Promise<T>, tx?: InventoryStockTransaction,
 ): Promise<T> => {

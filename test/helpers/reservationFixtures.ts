@@ -1,3 +1,5 @@
+// Explicit synthetic hold policy for isolated tests; never imported by runtime services.
+export const SYNTHETIC_HOLD_DURATION_MS = 15 * 60 * 1000;
 import type { ReservationRecord } from '@/inventory/services/stockReservationShared';
 import type { ReservationResult } from '@/inventory/types/stockReservationCommands';
 export const reservationRecord = (overrides: Partial<ReservationRecord> = {}): ReservationRecord => ({

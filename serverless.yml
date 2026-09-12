@@ -50,7 +50,6 @@ provider:
     CACHE_REDIS_URL: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_URL}
     CACHE_REDIS_KEY_PREFIX: ${self:custom.inventoryRuntimeByStage.CACHE_REDIS_KEY_PREFIX}
     SERVICE_ENCRYPTION_KEY: ${self:custom.inventoryRuntimeByStage.SERVICE_ENCRYPTION_KEY}
-    STOCK_RESERVATION_TIMEOUT_MINUTES: ${self:custom.inventoryRuntimeByStage.STOCK_RESERVATION_TIMEOUT_MINUTES}
     GOOGLE_MAPS_API_KEY: ${self:custom.inventoryRuntimeByStage.GOOGLE_MAPS_API_KEY}
     CELLIFI_AWS_REGION: ${self:custom.inventoryRuntimeByStage.CELLIFI_AWS_REGION}
     S3_ENDPOINT: ${self:custom.inventoryRuntimeByStage.S3_ENDPOINT}
