@@ -9,7 +9,8 @@
     "src/inventory/services/workflows/",
     "src/inventory/types/inventoryWorkflowEnvelope.ts",
     "src/handlers/sqs/reservation-operations/",
-    "src/handlers/scheduled/reservation-results/"
+    "src/handlers/scheduled/reservation-results/",
+    "src/handlers/scheduled/reservation-owner-events/"
   ],
   "includeTransitiveFirstPartyDependencies": true,
   "requiredUnitCoverage": {

@@ -123,11 +123,21 @@ Known follow-up:
 
 Purchase workflow implementation verification:
 
-- `npm run test:purchase:unit` runs scoped unit tests; `npm run test:purchase:coverage` enforces 100% statements, branches, functions and lines per executable module, including unloaded files and owned dependencies. Current coverage is below this release gate.
+- `npm run test:purchase:unit` runs scoped unit tests; `npm run test:purchase:coverage` enforces 100% statements, branches, functions and lines per executable module, including unloaded files and owned dependencies. The current 30-module inventory passes this unit gate; full release additionally requires the separate integration, runtime, property and mutation evidence.
 - `npm run test:purchase:integration` uses only the isolated local inventory_test database and matching role, with fixture-owned cleanup. Direct invocation of the integration files applies the same target guard.
 - `npm run test:purchase:providers` is reserved for real provider acceptance; absence of tests is a failed gate, not evidence of successful integration. Unit fault injection does not satisfy it.
 - `npm run test:purchase:regression` isolates characterized runtime simulation failures. The implementation branch intentionally retains failing business regressions until their owning changes land.
 - Reports are separate under `coverage/purchase-*`; module selection is recorded in `test/purchase-coverage-manifest.json`. `npm run test:config` also verifies unloaded-module coverage and suite separation.
+- The release manifest includes all four deployed reservation workflow entrypoints:
+  command ingestion, result publication, owner-event publication and expiry.
+  A configuration regression evaluates those actual handler sources without unit
+  imports, so leaving an untested scheduled publisher out cannot hide its coverage.
+- Full-manifest verification on 2026-09-13 passed 407 unit tests in 42 suites:
+  all 30 executable modules have 100% statements, branches, functions and lines.
+  Shared AWS configuration and Prisma lifecycle/error/slow-query tests use explicit
+  fake clients and make no database or provider calls. All 32 configuration tests
+  and TypeScript checks pass. This slice changes the manifest and tests only;
+  existing runtime source and the running closure proof remain unchanged.
 
 Reservation and workflow verification:
 
@@ -135,7 +145,9 @@ Reservation and workflow verification:
 - PostgreSQL tests cover concurrent replay and commit/release races, actual foreign key lineage rejection, enclosing transaction rollback, durable unknown outcomes, reconciliation redelivery, exact seller subsets and UTC/Europe-Berlin deadline behavior. Every new lifecycle/workflow timestamp is `TIMESTAMPTZ(3)`.
 - `test/integration/inventoryClosureRaces.test.ts` adds six deterministic PostgreSQL checks using real transaction connections and `pg_blocking_pids` barriers without sleeps: CLOSE observing HELD before delayed protection, both protection/release lock orders, atomic stale-subset rejection followed by fresh repartition, and both disjoint release/commit orders. CLOSE of materialized stock is an observation, not a payment fence; release fences apply only to released lines. Full-scope owner events identify only the actual changed subset. The synthetic financial assertion in these tests does not establish provider cancellation or authorize Commerce to release stock funded by captured money. This slice changes tests only; verification passed 387 unit tests, 71 PostgreSQL tests, 31 config tests, and strict TypeScript checking.
 - Use Node.js 22 (`nvm use`). `npx tsc --noEmit` checks source and tests strictly; database/service mocks declare their asynchronous result signatures.
-- The changed lifecycle and workflow modules have 100% statements, branches, functions and lines in focused verification. The wider transitive purchase coverage release gate remains below its threshold, and provider acceptance is still a separate required gate.
+- The complete current transitive purchase manifest has 100% statements, branches,
+  functions and lines in the full unit run above. Actual database/consumer,
+  independent-model, mutation and provider acceptance remain separate gates.
 - Download and preview URLs pass their five-minute expiry to AWS SDK v3 presigner options; URL tests verify `X-Amz-Expires=300`.
 
 

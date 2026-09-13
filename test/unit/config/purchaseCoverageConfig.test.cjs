@@ -52,3 +52,25 @@ test('rejects an empty source scope and an unknown suite', t => {
   const empty = fixture(t, { 'src/outside.ts': 'export const value = 1;' }, ['src/missing/']);
   assert.throws(() => build(empty, 'unit'), /selected no source files/);
 });
+
+test('inventories every deployed reservation workflow entrypoint even when no unit test imports it', t => {
+  const repository = path.resolve(__dirname, '../../..');
+  const manifest = fs.readFileSync(path.join(repository, 'test/purchase-coverage-manifest.json'), 'utf8');
+  const handlers = [
+    'src/handlers/sqs/reservation-operations/process.ts',
+    'src/handlers/scheduled/reservation-results/publish.ts',
+    'src/handlers/scheduled/reservation-owner-events/publish.ts',
+    'src/handlers/scheduled/stock-reservations/expire.ts',
+  ];
+  const root = fixture(t, {
+    'test/purchase-coverage-manifest.json': manifest,
+    ...Object.fromEntries(handlers.map(file => [file, fs.readFileSync(path.join(repository, file), 'utf8')])),
+  });
+  const result = build(root, 'unit');
+  assert.deepEqual(result.collectCoverageFrom, [...handlers].sort());
+  for (const handler of handlers) {
+    assert.deepEqual(result.coverageThreshold[`./${handler}`], {
+      statements: 100, branches: 100, functions: 100, lines: 100,
+    });
+  }
+});
