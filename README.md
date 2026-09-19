@@ -185,3 +185,13 @@ configuration, forces local AWS test credentials and injects only this owner's
 canonical queue/workflow references. Missing files or inconsistent values never
 fall back to manually copied ARN environment variables. `npm run test:config`
 checks the wrapper defaults, worktree overrides and exact forwarded arguments.
+
+Returned stock enters Inventory only through `INVENTORY_APPLY_RETURN`. The command
+must come from Fulfillment, bind one inspected return and evidence hash, and name
+the seller-owned stock item for every Commerce purchase line. Inventory locks the
+resolved items, writes `RETURNED` inbound movements and a durable
+`return_restock_operation` in one transaction. Matching command replay returns the
+stored result; changed evidence or scope is rejected without another movement.
+The normal Inventory result outbox publishes the completion back to Fulfillment.
+Apply migration `20260919160000_return_restock_operations` before starting the
+command consumer.

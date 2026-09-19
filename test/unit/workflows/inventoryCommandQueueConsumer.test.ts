@@ -1,15 +1,23 @@
 import { beforeEach, expect, it, jest } from '@jest/globals';
 import type { SQSRecord } from 'aws-lambda';
 const mockConsume = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockReturn = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.mock('@/inventory/services/workflows/inventoryCommandService', () => ({ consumeInventoryCommand: (...args: unknown[]) => mockConsume(...args) }));
+jest.mock('@/inventory/services/workflows/returnRestockCommandService', () => ({ consumeReturnRestockCommand: (...args: unknown[]) => mockReturn(...args) }));
 import { handler } from '@/handlers/sqs/reservation-operations/process';
 const commerce = 'arn:aws:sqs:us-east-1:000000000000:commerce';
 const fulfillment = 'arn:aws:sqs:us-east-1:000000000000:fulfillment';
 const record = (messageId: string, eventSourceARN = commerce): SQSRecord => ({ messageId, eventSourceARN, eventSource: 'aws:sqs', body: '{}', receiptHandle: '', awsRegion: 'us-east-1', md5OfBody: '', attributes: { ApproximateReceiveCount: '1', SentTimestamp: '', SenderId: '', ApproximateFirstReceiveTimestamp: '' }, messageAttributes: {} });
-beforeEach(() => { mockConsume.mockReset().mockResolvedValue({}); process.env.COMMERCE_COMMAND_QUEUE_ARN = commerce; process.env.FULFILLMENT_COMMAND_QUEUE_ARN = fulfillment; });
+beforeEach(() => { mockConsume.mockReset().mockResolvedValue({}); mockReturn.mockReset().mockResolvedValue({}); process.env.COMMERCE_COMMAND_QUEUE_ARN = commerce; process.env.FULFILLMENT_COMMAND_QUEUE_ARN = fulfillment; });
 it('derives producer authority solely from the exact queue ARN', async () => {
   expect(await handler({ Records: [record('1'), record('2', fulfillment)] })).toEqual({ batchItemFailures: [] });
   expect(mockConsume.mock.calls).toEqual([[{}, 'commerce'], [{}, 'fulfillment']]);
+});
+it('routes return restock commands only through the Fulfillment authority', async () => {
+  const body = JSON.stringify({ command: 'INVENTORY_APPLY_RETURN' });
+  expect(await handler({ Records: [{ ...record('1', fulfillment), body }] })).toEqual({ batchItemFailures: [] });
+  expect(mockReturn).toHaveBeenCalledWith({ command: 'INVENTORY_APPLY_RETURN' }, 'fulfillment');
+  expect(mockConsume).not.toHaveBeenCalled();
 });
 it.each(['spoof', `${commerce}:other`])('rejects untrusted source %s and independently processes later Standard records', async arn => {
   expect(await handler({ Records: [record('1', arn), record('2')] })).toEqual({ batchItemFailures: [{ itemIdentifier: '1' }] });

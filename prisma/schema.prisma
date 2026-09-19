@@ -50,28 +50,29 @@ model Attachment {
 }
 
 model Item {
-  id               Int          @id @default(autoincrement())
-  kind             ItemKind
-  itemCode         String       @map("item_code") @inventoryDb.VarChar(255)
-  status           String       @default("ACTIVE") @inventoryDb.VarChar(20)
-  addressLine1     String?      @map("address_line1") @inventoryDb.VarChar(255)
-  addressLine2     String?      @map("address_line2") @inventoryDb.VarChar(255)
-  addressCity      String?      @map("address_city") @inventoryDb.VarChar(100)
-  addressStateCode String?      @map("address_state_code") @inventoryDb.VarChar(32)
-  addressPostalCode String?     @map("address_postal_code") @inventoryDb.VarChar(20)
-  addressCountryCode String?    @map("address_country_code") @inventoryDb.VarChar(3)
-  addressLatitude  Float?       @map("address_latitude")
-  addressLongitude Float?       @map("address_longitude")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
-  deletedAt        DateTime?    @map("deleted_at")
-  mainImageId      Int?         @map("main_image_id")
-  sellerIdentifier String       @default("seller") @map("seller_identifier") @inventoryDb.VarChar(50)
-  images           Attachment[] @relation("images")
-  mainImage        Attachment?  @relation("mainImage", fields: [mainImageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  components       Component[]
-  movements        Movement[]
-  reservations     StockReservation[]
+  id                 Int                 @id @default(autoincrement())
+  kind               ItemKind
+  itemCode           String              @map("item_code") @inventoryDb.VarChar(255)
+  status             String              @default("ACTIVE") @inventoryDb.VarChar(20)
+  addressLine1       String?             @map("address_line1") @inventoryDb.VarChar(255)
+  addressLine2       String?             @map("address_line2") @inventoryDb.VarChar(255)
+  addressCity        String?             @map("address_city") @inventoryDb.VarChar(100)
+  addressStateCode   String?             @map("address_state_code") @inventoryDb.VarChar(32)
+  addressPostalCode  String?             @map("address_postal_code") @inventoryDb.VarChar(20)
+  addressCountryCode String?             @map("address_country_code") @inventoryDb.VarChar(3)
+  addressLatitude    Float?              @map("address_latitude")
+  addressLongitude   Float?              @map("address_longitude")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  deletedAt          DateTime?           @map("deleted_at")
+  mainImageId        Int?                @map("main_image_id")
+  sellerIdentifier   String              @default("seller") @map("seller_identifier") @inventoryDb.VarChar(50)
+  images             Attachment[]        @relation("images")
+  mainImage          Attachment?         @relation("mainImage", fields: [mainImageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  components         Component[]
+  movements          Movement[]
+  reservations       StockReservation[]
+  returnRestockLines ReturnRestockLine[]
 
   @@unique([sellerIdentifier, itemCode])
   @@index([sellerIdentifier])
@@ -161,9 +162,10 @@ model Movement {
   createdBy Int?              @map("created_by")
   item      Item              @relation(fields: [itemId], references: [id])
 
-  reservedFor StockReservation? @relation("ReservationHold")
-  releasedFor StockReservation? @relation("ReservationRelease")
-  soldFor     StockReservation? @relation("ReservationSale")
+  reservedFor StockReservation?  @relation("ReservationHold")
+  releasedFor StockReservation?  @relation("ReservationRelease")
+  soldFor     StockReservation?  @relation("ReservationSale")
+  returnedFor ReturnRestockLine?
 
   @@unique([id, itemId])
   @@index([itemId, direction])
@@ -171,34 +173,34 @@ model Movement {
 }
 
 model OffersOffer {
-  id                  Int                     @id @default(autoincrement())
-  title               String                  @inventoryDb.VarChar(200)
+  id                  Int                      @id @default(autoincrement())
+  title               String                   @inventoryDb.VarChar(200)
   description         String
-  createdAt           DateTime                @default(now()) @map("created_at")
-  updatedAt           DateTime                @updatedAt @map("updated_at")
-  validFrom           DateTime                @default(now()) @map("valid_from")
-  validTo             DateTime?               @map("valid_to")
-  local               Boolean?                @default(true)
-  online              Boolean?                @default(false)
-  slug                String?                 @unique @inventoryDb.VarChar(255)
-  deletedAt           DateTime?               @map("deleted_at")
-  currentPriceId      Int?                    @unique @map("current_price_id")
-  sellerIdentifier    String?                 @map("seller_identifier") @inventoryDb.VarChar(50)
-  itemCode            String?                 @map("item_code") @inventoryDb.VarChar(255)
-  minOrderUnits       Int                     @default(1) @map("min_order_units")
-  status              OfferStatus             @default(INACTIVE)
-  version             Int                     @default(0)
-  expiredAt           DateTime?               @map("expired_at")
-  latestPublicationId Int?                    @unique @map("latest_publication_id")
-  addressState        String?                 @map("address_state") @inventoryDb.VarChar(10)
-  addressCountry      String?                 @map("address_country") @inventoryDb.VarChar(3)
-  currencyCode        String?                 @map("currency_code") @inventoryDb.VarChar(3)
-  currencySymbol      String?                 @map("currency_symbol") @inventoryDb.VarChar(10)
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  validFrom           DateTime                 @default(now()) @map("valid_from")
+  validTo             DateTime?                @map("valid_to")
+  local               Boolean?                 @default(true)
+  online              Boolean?                 @default(false)
+  slug                String?                  @unique @inventoryDb.VarChar(255)
+  deletedAt           DateTime?                @map("deleted_at")
+  currentPriceId      Int?                     @unique @map("current_price_id")
+  sellerIdentifier    String?                  @map("seller_identifier") @inventoryDb.VarChar(50)
+  itemCode            String?                  @map("item_code") @inventoryDb.VarChar(255)
+  minOrderUnits       Int                      @default(1) @map("min_order_units")
+  status              OfferStatus              @default(INACTIVE)
+  version             Int                      @default(0)
+  expiredAt           DateTime?                @map("expired_at")
+  latestPublicationId Int?                     @unique @map("latest_publication_id")
+  addressState        String?                  @map("address_state") @inventoryDb.VarChar(10)
+  addressCountry      String?                  @map("address_country") @inventoryDb.VarChar(3)
+  currencyCode        String?                  @map("currency_code") @inventoryDb.VarChar(3)
+  currencySymbol      String?                  @map("currency_symbol") @inventoryDb.VarChar(10)
   publications        OffersOfferPublication[] @relation("OffersPublications")
-  currentPrice        OffersPrice?            @relation("OffersCurrentPrice", fields: [currentPriceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  latestPublication   OffersOfferPublication? @relation("OffersLatestPublication", fields: [latestPublicationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  prices              OffersPrice[]           @relation("OffersPrices")
-  visits              OffersVisit[]           @relation("OffersVisits")
+  currentPrice        OffersPrice?             @relation("OffersCurrentPrice", fields: [currentPriceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  latestPublication   OffersOfferPublication?  @relation("OffersLatestPublication", fields: [latestPublicationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  prices              OffersPrice[]            @relation("OffersPrices")
+  visits              OffersVisit[]            @relation("OffersVisits")
 
   @@index([sellerIdentifier, itemCode, deletedAt])
   @@index([sellerIdentifier, itemCode, addressCountry, addressState, minOrderUnits])
@@ -282,8 +284,41 @@ enum MovementReason {
   ADJUSTED
   RESERVED
   RELEASED
+  RETURNED
 }
 
+model ReturnRestockOperation {
+  operationId     String              @id @map("operation_id") @inventoryDb.VarChar(160)
+  returnId        String              @unique @map("return_id") @inventoryDb.VarChar(191)
+  sellerOrderId   String              @map("seller_order_id") @inventoryDb.VarChar(191)
+  sellerAccountId String              @map("seller_account_id") @inventoryDb.VarChar(191)
+  evidenceHash    String              @map("evidence_hash") @inventoryDb.VarChar(64)
+  inputHash       String              @map("input_hash") @inventoryDb.VarChar(64)
+  input           Json
+  result          Json
+  createdAt       DateTime            @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  lines           ReturnRestockLine[]
+
+  @@index([sellerOrderId])
+  @@map("return_restock_operations")
+}
+
+model ReturnRestockLine {
+  id                     String                 @id @default(uuid())
+  operationId            String                 @map("operation_id") @inventoryDb.VarChar(160)
+  itemId                 Int                    @map("item_id")
+  movementId             Int                    @unique @map("movement_id")
+  commercePurchaseLineId String                 @map("commerce_purchase_line_id") @inventoryDb.VarChar(191)
+  quantity               Int
+  operation              ReturnRestockOperation @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  item                   Item                   @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movement               Movement               @relation(fields: [movementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([operationId, commercePurchaseLineId])
+  @@unique([movementId, itemId])
+  @@index([itemId])
+  @@map("return_restock_lines")
+}
 
 enum ReservationState {
   HELD
@@ -302,33 +337,33 @@ enum ReservationOperationKind {
 }
 
 model StockReservation {
-  id                    String @id @default(uuid())
-  scopeLineId           String @unique @map("scope_line_id")
-  checkoutId            String @map("checkout_id")
-  checkoutVersion       Int @map("checkout_version")
-  lineId                String @map("line_id")
-  itemId                Int @map("item_id")
-  state                 ReservationState @default(HELD)
-  revision              Int @default(0)
-  expiresAt             DateTime @map("expires_at") @inventoryDb.Timestamptz(3)
-  paymentScopeId        String? @map("payment_scope_id")
-  fence                 Int @default(0)
-  paymentId             String? @map("payment_id")
-  purchaseId            String? @map("purchase_id")
-  commerceSellerOrderId String? @map("commerce_seller_order_id")
-  resolutionId          String? @map("resolution_id")
-  scopeClosedAt         DateTime? @map("scope_closed_at") @inventoryDb.Timestamptz(3)
-  releaseCause          String? @map("release_cause")
-  heldMovementId        Int @unique @map("held_movement_id")
-  releasedMovementId    Int? @unique @map("released_movement_id")
-  soldMovementId        Int? @unique @map("sold_movement_id")
-  createdAt             DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  updatedAt             DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
+  id                    String                    @id @default(uuid())
+  scopeLineId           String                    @unique @map("scope_line_id")
+  checkoutId            String                    @map("checkout_id")
+  checkoutVersion       Int                       @map("checkout_version")
+  lineId                String                    @map("line_id")
+  itemId                Int                       @map("item_id")
+  state                 ReservationState          @default(HELD)
+  revision              Int                       @default(0)
+  expiresAt             DateTime                  @map("expires_at") @inventoryDb.Timestamptz(3)
+  paymentScopeId        String?                   @map("payment_scope_id")
+  fence                 Int                       @default(0)
+  paymentId             String?                   @map("payment_id")
+  purchaseId            String?                   @map("purchase_id")
+  commerceSellerOrderId String?                   @map("commerce_seller_order_id")
+  resolutionId          String?                   @map("resolution_id")
+  scopeClosedAt         DateTime?                 @map("scope_closed_at") @inventoryDb.Timestamptz(3)
+  releaseCause          String?                   @map("release_cause")
+  heldMovementId        Int                       @unique @map("held_movement_id")
+  releasedMovementId    Int?                      @unique @map("released_movement_id")
+  soldMovementId        Int?                      @unique @map("sold_movement_id")
+  createdAt             DateTime                  @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  updatedAt             DateTime                  @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
   scopeLine             InventoryReserveScopeLine @relation(fields: [scopeLineId, checkoutId, checkoutVersion, lineId], references: [id, checkoutId, checkoutVersion, lineId], onDelete: Restrict, onUpdate: Restrict)
-  item                  Item @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  heldMovement          Movement @relation("ReservationHold", fields: [heldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
-  releasedMovement      Movement? @relation("ReservationRelease", fields: [releasedMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
-  soldMovement          Movement? @relation("ReservationSale", fields: [soldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+  item                  Item                      @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  heldMovement          Movement                  @relation("ReservationHold", fields: [heldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+  releasedMovement      Movement?                 @relation("ReservationRelease", fields: [releasedMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+  soldMovement          Movement?                 @relation("ReservationSale", fields: [soldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([scopeLineId, checkoutId, checkoutVersion, lineId])
   @@unique([heldMovementId, itemId])
@@ -342,14 +377,14 @@ model StockReservation {
 }
 
 model ReservationOperation {
-  id               String @id
+  id               String                   @id
   kind             ReservationOperationKind
-  checkoutId       String @map("checkout_id")
-  checkoutVersion  Int @map("checkout_version")
-  inputFingerprint String @map("input_fingerprint")
+  checkoutId       String                   @map("checkout_id")
+  checkoutVersion  Int                      @map("checkout_version")
+  inputFingerprint String                   @map("input_fingerprint")
   input            Json
   result           Json
-  createdAt        DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  createdAt        DateTime                 @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
 
   @@index([checkoutId, checkoutVersion])
   @@map("reservation_operations")
@@ -375,25 +410,25 @@ enum InventoryResultDeliveryState {
 }
 
 model InventoryCommand {
-  operationId       String @id @map("operation_id")
-  producer          InventoryCommandProducer
-  command           String
-  executionId       String @map("execution_id")
-  correlationId     String @map("correlation_id")
-  resourceType      String @map("resource_type")
-  resourceId        String @map("resource_id")
-  resourceVersion   Int @map("resource_version")
-  operationInputHash String @map("operation_input_hash")
-  envelopeHash      String @map("envelope_hash")
-  immutableEnvelope Json @map("immutable_envelope")
-  state             InventoryCommandState @default(RECEIVED)
-  result            Json?
-  receivedAt        DateTime @default(now()) @map("received_at") @inventoryDb.Timestamptz(3)
-  completedAt       DateTime? @map("completed_at") @inventoryDb.Timestamptz(3)
-  inboxEvents       InventoryInboxEvent[]
-  resultOutbox      InventoryResultOutbox[]
-  recoveries        InventoryCommandRecovery[]
-  reserveClosures   InventoryReserveNoEffectClosure[]
+  operationId        String                            @id @map("operation_id")
+  producer           InventoryCommandProducer
+  command            String
+  executionId        String                            @map("execution_id")
+  correlationId      String                            @map("correlation_id")
+  resourceType       String                            @map("resource_type")
+  resourceId         String                            @map("resource_id")
+  resourceVersion    Int                               @map("resource_version")
+  operationInputHash String                            @map("operation_input_hash")
+  envelopeHash       String                            @map("envelope_hash")
+  immutableEnvelope  Json                              @map("immutable_envelope")
+  state              InventoryCommandState             @default(RECEIVED)
+  result             Json?
+  receivedAt         DateTime                          @default(now()) @map("received_at") @inventoryDb.Timestamptz(3)
+  completedAt        DateTime?                         @map("completed_at") @inventoryDb.Timestamptz(3)
+  inboxEvents        InventoryInboxEvent[]
+  resultOutbox       InventoryResultOutbox[]
+  recoveries         InventoryCommandRecovery[]
+  reserveClosures    InventoryReserveNoEffectClosure[]
 
   @@index([resourceType, resourceId, resourceVersion])
   @@index([state, receivedAt])
@@ -401,14 +436,14 @@ model InventoryCommand {
 }
 
 model InventoryInboxEvent {
-  id          String @id @default(uuid())
+  id          String                   @id @default(uuid())
   producer    InventoryCommandProducer
-  eventId     String @map("event_id")
-  operationId String @map("operation_id")
-  payloadHash String @map("payload_hash")
+  eventId     String                   @map("event_id")
+  operationId String                   @map("operation_id")
+  payloadHash String                   @map("payload_hash")
   payload     Json
-  receivedAt  DateTime @default(now()) @map("received_at") @inventoryDb.Timestamptz(3)
-  command     InventoryCommand @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  receivedAt  DateTime                 @default(now()) @map("received_at") @inventoryDb.Timestamptz(3)
+  command     InventoryCommand         @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
 
   resultDelivery InventoryResultOutbox?
 
@@ -418,25 +453,25 @@ model InventoryInboxEvent {
 }
 
 model InventoryResultOutbox {
-  id             String @id @default(uuid())
-  operationId    String @map("operation_id")
-  eventId        String @map("event_id")
-  receiptId      String @unique @map("receipt_id")
+  id             String                       @id @default(uuid())
+  operationId    String                       @map("operation_id")
+  eventId        String                       @map("event_id")
+  receiptId      String                       @unique @map("receipt_id")
   destination    InventoryCommandProducer
   payload        Json
-  payloadHash    String @map("payload_hash")
+  payloadHash    String                       @map("payload_hash")
   state          InventoryResultDeliveryState @default(PENDING)
-  attempts       Int @default(0)
-  nextAttemptAt  DateTime @default(now()) @map("next_attempt_at") @inventoryDb.Timestamptz(3)
-  leaseOwner     String? @map("lease_owner")
-  leaseExpiresAt DateTime? @map("lease_expires_at") @inventoryDb.Timestamptz(3)
-  fencingToken   Int @default(0) @map("fencing_token")
-  lastErrorCode  String? @map("last_error_code")
-  createdAt      DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  deliveredAt    DateTime? @map("delivered_at") @inventoryDb.Timestamptz(3)
-  command        InventoryCommand @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  attempts       Int                          @default(0)
+  nextAttemptAt  DateTime                     @default(now()) @map("next_attempt_at") @inventoryDb.Timestamptz(3)
+  leaseOwner     String?                      @map("lease_owner")
+  leaseExpiresAt DateTime?                    @map("lease_expires_at") @inventoryDb.Timestamptz(3)
+  fencingToken   Int                          @default(0) @map("fencing_token")
+  lastErrorCode  String?                      @map("last_error_code")
+  createdAt      DateTime                     @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  deliveredAt    DateTime?                    @map("delivered_at") @inventoryDb.Timestamptz(3)
+  command        InventoryCommand             @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
 
-  receipt        InventoryInboxEvent @relation(fields: [receiptId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  receipt InventoryInboxEvent @relation(fields: [receiptId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([operationId])
   @@index([eventId])
@@ -457,22 +492,21 @@ enum InventoryRecoveryAction {
 }
 
 model InventoryCommandRecovery {
-  id          String @id @default(uuid())
-  operationId String @map("operation_id")
-  reason      String
-  assignedOwner String @map("assigned_owner")
-  severity    InventoryRecoverySeverity
-  nextAction  InventoryRecoveryAction @map("next_action")
-  dueAt       DateTime @map("due_at") @inventoryDb.Timestamptz(3)
-  createdAt   DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  resolvedAt  DateTime? @map("resolved_at") @inventoryDb.Timestamptz(3)
-  command     InventoryCommand @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  id            String                    @id @default(uuid())
+  operationId   String                    @map("operation_id")
+  reason        String
+  assignedOwner String                    @map("assigned_owner")
+  severity      InventoryRecoverySeverity
+  nextAction    InventoryRecoveryAction   @map("next_action")
+  dueAt         DateTime                  @map("due_at") @inventoryDb.Timestamptz(3)
+  createdAt     DateTime                  @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  resolvedAt    DateTime?                 @map("resolved_at") @inventoryDb.Timestamptz(3)
+  command       InventoryCommand          @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([operationId, reason])
   @@index([resolvedAt, dueAt])
   @@map("inventory_command_recoveries")
 }
-
 
 enum InventoryReserveScopeState {
   CLAIMED
@@ -488,20 +522,20 @@ enum InventoryReserveClosureReason {
 }
 
 model InventoryReserveScope {
-  id                        String @id @default(uuid())
-  checkoutId                String @map("checkout_id")
-  checkoutVersion           Int @map("checkout_version")
-  reserveOperationId        String @unique @map("reserve_operation_id")
-  reserveOperationInputHash String @map("reserve_operation_input_hash")
-  reserveInputHash          String @map("reserve_input_hash")
-  originalDescriptorHash    String @map("original_descriptor_hash")
-  originalDescriptor        Json @map("original_descriptor")
-  expiresAt                 DateTime @map("expires_at") @inventoryDb.Timestamptz(3)
-  state                     InventoryReserveScopeState @default(CLAIMED)
-  revision                  Int @default(0)
-  protectedRevision         Int? @map("protected_revision")
-  createdAt                 DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  updatedAt                 DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
+  id                        String                           @id @default(uuid())
+  checkoutId                String                           @map("checkout_id")
+  checkoutVersion           Int                              @map("checkout_version")
+  reserveOperationId        String                           @unique @map("reserve_operation_id")
+  reserveOperationInputHash String                           @map("reserve_operation_input_hash")
+  reserveInputHash          String                           @map("reserve_input_hash")
+  originalDescriptorHash    String                           @map("original_descriptor_hash")
+  originalDescriptor        Json                             @map("original_descriptor")
+  expiresAt                 DateTime                         @map("expires_at") @inventoryDb.Timestamptz(3)
+  state                     InventoryReserveScopeState       @default(CLAIMED)
+  revision                  Int                              @default(0)
+  protectedRevision         Int?                             @map("protected_revision")
+  createdAt                 DateTime                         @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  updatedAt                 DateTime                         @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
   lines                     InventoryReserveScopeLine[]
   noEffectClosure           InventoryReserveNoEffectClosure?
   ownerEvents               InventoryOwnerEvent[]
@@ -513,13 +547,13 @@ model InventoryReserveScope {
 }
 
 model InventoryReserveScopeLine {
-  id              String @id @default(uuid())
-  scopeId         String @map("scope_id")
-  checkoutId      String @map("checkout_id")
-  checkoutVersion Int @map("checkout_version")
-  lineId          String @map("line_id")
-  accountId       String @map("account_id")
-  sourceInvId     String @map("source_inv_id")
+  id              String                @id @default(uuid())
+  scopeId         String                @map("scope_id")
+  checkoutId      String                @map("checkout_id")
+  checkoutVersion Int                   @map("checkout_version")
+  lineId          String                @map("line_id")
+  accountId       String                @map("account_id")
+  sourceInvId     String                @map("source_inv_id")
   quantity        Int
   scope           InventoryReserveScope @relation(fields: [scopeId, checkoutId, checkoutVersion], references: [id, checkoutId, checkoutVersion], onDelete: Restrict, onUpdate: Restrict)
   reservation     StockReservation?
@@ -531,19 +565,18 @@ model InventoryReserveScopeLine {
 }
 
 model InventoryReserveNoEffectClosure {
-  id                     String @id @default(uuid())
-  scopeId                String @unique @map("scope_id")
-  authorizingOperationId String @map("authorizing_operation_id")
+  id                     String                        @id @default(uuid())
+  scopeId                String                        @unique @map("scope_id")
+  authorizingOperationId String                        @map("authorizing_operation_id")
   reason                 InventoryReserveClosureReason
-  closedAt               DateTime @map("closed_at") @inventoryDb.Timestamptz(3)
-  evidenceHash           String @map("evidence_hash")
-  scope                  InventoryReserveScope @relation(fields: [scopeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  command                InventoryCommand @relation(fields: [authorizingOperationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  closedAt               DateTime                      @map("closed_at") @inventoryDb.Timestamptz(3)
+  evidenceHash           String                        @map("evidence_hash")
+  scope                  InventoryReserveScope         @relation(fields: [scopeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  command                InventoryCommand              @relation(fields: [authorizingOperationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([authorizingOperationId])
   @@map("inventory_reserve_no_effect_closures")
 }
-
 
 enum InventoryOwnerEventKind {
   INVENTORY_RESERVATION_COMMITTED
@@ -552,17 +585,17 @@ enum InventoryOwnerEventKind {
 }
 
 model InventoryOwnerEvent {
-  id              String @id @inventoryDb.VarChar(191)
-  scopeId         String @map("scope_id")
-  scopeRevision   Int @map("scope_revision")
-  checkoutId      String @map("checkout_id")
-  checkoutVersion Int @map("checkout_version")
+  id              String                        @id @inventoryDb.VarChar(191)
+  scopeId         String                        @map("scope_id")
+  scopeRevision   Int                           @map("scope_revision")
+  checkoutId      String                        @map("checkout_id")
+  checkoutVersion Int                           @map("checkout_version")
   kind            InventoryOwnerEventKind
-  observedAt      DateTime @map("observed_at") @inventoryDb.Timestamptz(3)
+  observedAt      DateTime                      @map("observed_at") @inventoryDb.Timestamptz(3)
   payload         Json
-  payloadHash     String @map("payload_hash") @inventoryDb.VarChar(64)
-  createdAt       DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  scope           InventoryReserveScope @relation(fields: [scopeId, checkoutId, checkoutVersion], references: [id, checkoutId, checkoutVersion], onDelete: Restrict, onUpdate: Restrict)
+  payloadHash     String                        @map("payload_hash") @inventoryDb.VarChar(64)
+  createdAt       DateTime                      @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  scope           InventoryReserveScope         @relation(fields: [scopeId, checkoutId, checkoutVersion], references: [id, checkoutId, checkoutVersion], onDelete: Restrict, onUpdate: Restrict)
   delivery        InventoryOwnerEventOutbox?
   recoveries      InventoryOwnerEventRecovery[]
 
@@ -572,18 +605,18 @@ model InventoryOwnerEvent {
 }
 
 model InventoryOwnerEventOutbox {
-  id             String @id @default(uuid())
-  eventId        String @unique @map("event_id") @inventoryDb.VarChar(191)
+  id             String                       @id @default(uuid())
+  eventId        String                       @unique @map("event_id") @inventoryDb.VarChar(191)
   state          InventoryResultDeliveryState @default(PENDING)
-  attempts       Int @default(0)
-  nextAttemptAt  DateTime @default(now()) @map("next_attempt_at") @inventoryDb.Timestamptz(3)
-  leaseOwner     String? @map("lease_owner")
-  leaseExpiresAt DateTime? @map("lease_expires_at") @inventoryDb.Timestamptz(3)
-  fencingToken   Int @default(0) @map("fencing_token")
-  lastErrorCode  String? @map("last_error_code")
-  createdAt      DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  deliveredAt    DateTime? @map("delivered_at") @inventoryDb.Timestamptz(3)
-  event          InventoryOwnerEvent @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  attempts       Int                          @default(0)
+  nextAttemptAt  DateTime                     @default(now()) @map("next_attempt_at") @inventoryDb.Timestamptz(3)
+  leaseOwner     String?                      @map("lease_owner")
+  leaseExpiresAt DateTime?                    @map("lease_expires_at") @inventoryDb.Timestamptz(3)
+  fencingToken   Int                          @default(0) @map("fencing_token")
+  lastErrorCode  String?                      @map("last_error_code")
+  createdAt      DateTime                     @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  deliveredAt    DateTime?                    @map("delivered_at") @inventoryDb.Timestamptz(3)
+  event          InventoryOwnerEvent          @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([state, nextAttemptAt, id])
   @@index([state, leaseExpiresAt, id])
@@ -591,16 +624,16 @@ model InventoryOwnerEventOutbox {
 }
 
 model InventoryOwnerEventRecovery {
-  id            String @id @default(uuid())
-  eventId       String @map("event_id") @inventoryDb.VarChar(191)
+  id            String                    @id @default(uuid())
+  eventId       String                    @map("event_id") @inventoryDb.VarChar(191)
   reason        String
-  assignedOwner String @map("assigned_owner")
+  assignedOwner String                    @map("assigned_owner")
   severity      InventoryRecoverySeverity
-  nextAction    InventoryRecoveryAction @map("next_action")
-  dueAt         DateTime @map("due_at") @inventoryDb.Timestamptz(3)
-  createdAt     DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
-  resolvedAt    DateTime? @map("resolved_at") @inventoryDb.Timestamptz(3)
-  event         InventoryOwnerEvent @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  nextAction    InventoryRecoveryAction   @map("next_action")
+  dueAt         DateTime                  @map("due_at") @inventoryDb.Timestamptz(3)
+  createdAt     DateTime                  @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  resolvedAt    DateTime?                 @map("resolved_at") @inventoryDb.Timestamptz(3)
+  event         InventoryOwnerEvent       @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([eventId, reason])
   @@index([resolvedAt, dueAt])

@@ -2,6 +2,7 @@ import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 import { z } from 'zod';
 import { INVENTORY_WORKFLOW_ENV, InventoryCommandProducer, WORKFLOW_ERROR } from '@/constants/inventoryWorkflows';
 import { consumeInventoryCommand } from '@/inventory/services/workflows/inventoryCommandService';
+import { consumeReturnRestockCommand } from '@/inventory/services/workflows/returnRestockCommandService';
 
 const standardQueueArn = z.string().regex(/^arn:[a-z0-9-]+:sqs:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]{1,80}$/);
 export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQSBatchResponse> => {
@@ -15,7 +16,10 @@ export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQS
       const producer = record.eventSourceARN === commerce ? InventoryCommandProducer.commerce
         : record.eventSourceARN === fulfillment ? InventoryCommandProducer.fulfillment : null;
       if (!producer) throw new Error(WORKFLOW_ERROR.SOURCE_MISMATCH);
-      await consumeInventoryCommand(JSON.parse(record.body), producer);
+      const input = JSON.parse(record.body);
+      await ((input as { command?: unknown }).command === 'INVENTORY_APPLY_RETURN'
+        ? consumeReturnRestockCommand(input, producer)
+        : consumeInventoryCommand(input, producer));
     } catch { batchItemFailures.push({ itemIdentifier: record.messageId }); }
   }
   return { batchItemFailures };
