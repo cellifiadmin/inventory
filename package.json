@@ -26,7 +26,9 @@
     "test:purchase:providers": "jest --runInBand --config jest.purchase-providers.config.cjs",
     "test:purchase:regression": "jest --runInBand --config jest.purchase-regression.config.cjs",
     "test:purchase:coverage": "npm run test:purchase:unit -- --coverage",
-    "local:queue:ensure": "bash scripts/ensure-local-workflow-queues.sh"
+    "local:queue:ensure": "bash scripts/ensure-local-workflow-queues.sh",
+    "test:purchase:runtime": "jest --runInBand --config jest.purchase-runtime.config.cjs",
+    "test:purchase:property": "jest --runInBand test/property"
   },
   "prisma": {
     "seed": "echo 'Inventory service does not define a seed yet'"
@@ -37,6 +39,7 @@
     "@types/http-errors": "2.0.5",
     "@types/jest": "^30.0.0",
     "dotenv": "^17.2.3",
+    "esbuild": "0.28.1",
     "jest": "^30.2.0",
     "prisma": "^6.8.2",
     "serverless": "^4.38.1",

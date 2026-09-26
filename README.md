@@ -195,3 +195,50 @@ stored result; changed evidence or scope is rejected without another movement.
 The normal Inventory result outbox publishes the completion back to Fulfillment.
 Apply migration `20260919160000_return_restock_operations` before starting the
 command consumer.
+
+### Task 18 isolated cutover, restart and restore proofs
+
+`npm run test:purchase:runtime` has a separate runtime-report directory and retains
+the existing local `inventory_test` database/role guard. The queue-generation test
+also requires `CELLIFI_CUTOVER_SQS_ENDPOINT=http://localhost:4566` (or the explicit
+isolated local port 4567). It creates uniquely named Standard queues, never purges
+shared queues, and deletes only its own queues during teardown.
+
+- `developmentCutoverIsolation.test.ts` exercises real LocalStack SQS records and
+  PostgreSQL through the source consumer. Old source ARNs fail before effects;
+  retained reserve closure prevents an old command forwarded through the new queue
+  from recreating holds. Ordinary holds release through owner commands, while a
+  payment-protected hold without financial resolution stays protected. Unrelated
+  stock/messages survive and exact replay adds no movements.
+- Its test-only `cutoverCommandWorker.ts` runs the consumer in a separate process,
+  exits after commit before reporting success, and reprocesses the same redelivered
+  SQS message in a fresh process. Database receipts prevent duplicate effects.
+  The harness bundles the actual consumer using explicitly pinned esbuild 0.28.1.
+- `inventoryRestoreRecovery.test.ts` creates two uniquely named local databases,
+  applies Inventory migrations through the Prisma CLI, and uses actual
+  `pg_dump`/`pg_restore`. A committed reservation/inbox/outbox is restored and its
+  original message is replayed through a fresh worker. Stock and delivery records
+  stay unchanged. Only its own databases/archive are removed afterward.
+- `reservationCutoverLoad.test.ts` sends 40 distinct unit demands through four
+  concurrent owner callers against 12 stocked units, then replays every command.
+  Exactly 12 succeed, the rest fail without effect, and replay preserves stock.
+  The independent expectation also checks each admitted checkout's reservation and
+  unit movement. This is a bounded local PostgreSQL workload, not provider/Lambda
+  capacity testing or approval of production SLOs.
+
+These proofs use synthetic commercial identities and no external financial effects.
+Direct source-consumer/process invocation is not evidence of deployed Lambda event
+source mappings, Step Functions recovery, or a complete buyer purchase. Restoring
+lost financial history and reconciling later provider effects remains a separate
+release gate. The restore test uses the existing local `abi` database administrator
+only to create/drop disposable databases owned by `inventory_test`; no primary
+schema or retained provider configuration is modified.
+
+
+Task18 seeded stock model (`npm run test:purchase:property`) compares 240 generated
+owner operations across four reproducible seeds against an independent integer
+ledger in isolated PostgreSQL. It checks reserve/protect/commit/release, rejected
+unproved protected releases, and historical command replays. Cleanup is limited
+to unique test-owned scopes/items. Failure output retains the seed and failing
+prefix under ignored coverage output. This supplements the native expiry/race
+suites; it does not claim generated expiry coverage or provider acceptance.
