@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { INVENTORY_WORKFLOW_ENV, InventoryCommandProducer, WORKFLOW_ERROR } from '@/constants/inventoryWorkflows';
 import { consumeInventoryCommand } from '@/inventory/services/workflows/inventoryCommandService';
 import { consumeReturnRestockCommand } from '@/inventory/services/workflows/returnRestockCommandService';
+import { consumeReplacementStockCommand } from '@/inventory/services/workflows/replacementStockCommandService';
 
 const standardQueueArn = z.string().regex(/^arn:[a-z0-9-]+:sqs:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]{1,80}$/);
 export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQSBatchResponse> => {
@@ -21,7 +22,9 @@ export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQS
       await ((input as { command?: unknown }).command === 'INVENTORY_APPLY_RETURN'
         ? consumeReturnRestockCommand(input, producer)
         : (input as { command?: unknown }).command === 'INVENTORY_APPLY_CANCELLATION'
-          ? consumeCancellationRestorationCommand(input, producer) : consumeInventoryCommand(input, producer));
+          ? consumeCancellationRestorationCommand(input, producer)
+          : (input as { command?: unknown }).command === 'INVENTORY_RESERVE_REPLACEMENT'
+            ? consumeReplacementStockCommand(input, producer) : consumeInventoryCommand(input, producer));
     } catch { batchItemFailures.push({ itemIdentifier: record.messageId }); }
   }
   return { batchItemFailures };

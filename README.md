@@ -288,3 +288,15 @@ Movement metadata distinguishes cancellation restoration from release of an unpa
 hold. Both cancellation releases and returned stock count against the original sale
 movement's restoration bound. Duplicate commands produce one stock effect; fresh
 receipts may redeliver the retained result. This operation does not refund money.
+
+`INVENTORY_RESERVE_REPLACEMENT` accepts only the configured Fulfillment command
+queue. The command must bind the seller, original committed purchase line, exact
+seller-owned source item, replacement shipment and entitlement. Under that item
+lock, Inventory checks current available stock and records one `OUT/RESERVED`
+movement plus a `replacement_stock_hold` linked to the immutable command and
+movement. Exact replay returns the same result; insufficient or foreign stock
+produces a durable no-effect failure that Fulfillment uses to release entitlement
+allocation. The result outbox validates and sends the replacement result to
+Fulfillment. Apply migration `20260927173000_replacement_stock_holds` before
+enabling the consumer. A held replacement cannot yet be committed or released;
+the follow-on operation phases are required before shipping or cancellation.

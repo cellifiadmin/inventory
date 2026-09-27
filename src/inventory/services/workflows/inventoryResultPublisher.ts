@@ -8,6 +8,7 @@ import { databaseNow, withStockTransaction, type InventoryStockTransaction } fro
 import { inventoryResultEnvelopeSchema } from '@/inventory/types/inventoryWorkflowEnvelope';
 import { returnRestockResultSchema } from '@/inventory/services/returnRestockService';
 import { cancellationRestorationResultSchema } from '@/inventory/services/cancellationRestorationService';
+import { replacementStockResultSchema } from '@/inventory/services/workflows/replacementStockCommandService';
 import { canonicalWorkflowInput, workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 
 const sqs = new SQSClient({ ...resolveAwsClientConfig(), maxAttempts: 2 });
@@ -24,11 +25,13 @@ const fulfillmentOwnerResultSchema = z.discriminatedUnion('resourceType', [
 export const sendInventoryResult = async (row: InventoryResultOutbox): Promise<void> => {
   const resourceType = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
     ? (row.payload as { resourceType?: unknown }).resourceType : null;
-  const fulfillmentOwner = resourceType === 'return' || resourceType === 'cancellation';
+  const fulfillmentOwner = resourceType === 'return' || resourceType === 'cancellation' ||
+    resourceType === 'replacement-shipment';
   if (fulfillmentOwner && row.destination !== InventoryCommandProducer.fulfillment)
     throw new Error(WORKFLOW_ERROR.RESULT_INVALID);
-  const payload = fulfillmentOwner ? fulfillmentOwnerResultSchema.parse(row.payload)
-    : inventoryResultEnvelopeSchema.parse(row.payload);
+  const payload = resourceType === 'replacement-shipment' ? replacementStockResultSchema.parse(row.payload)
+    : fulfillmentOwner ? fulfillmentOwnerResultSchema.parse(row.payload)
+      : inventoryResultEnvelopeSchema.parse(row.payload);
   if (workflowInputHash(payload) !== row.payloadHash || payload.operationId !== row.operationId || payload.eventId !== row.eventId) {
     throw new Error(WORKFLOW_ERROR.RESULT_INVALID);
   }

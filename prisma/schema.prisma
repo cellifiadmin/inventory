@@ -73,6 +73,7 @@ model Item {
   movements          Movement[]
   reservations       StockReservation[]
   returnRestockLines ReturnRestockLine[]
+  replacementStockHolds ReplacementStockHold[]
 
   @@unique([sellerIdentifier, itemCode])
   @@index([sellerIdentifier])
@@ -166,6 +167,9 @@ model Movement {
   releasedFor StockReservation?  @relation("ReservationRelease")
   soldFor     StockReservation?  @relation("ReservationSale")
   returnedFor ReturnRestockLine?
+  replacementHeldFor ReplacementStockHold? @relation("ReplacementHold")
+  replacementReleasedFor ReplacementStockHold? @relation("ReplacementRelease")
+  replacementSoldFor ReplacementStockHold? @relation("ReplacementSale")
 
   @@unique([id, itemId])
   @@index([itemId, direction])
@@ -285,6 +289,47 @@ enum MovementReason {
   RESERVED
   RELEASED
   RETURNED
+  REPLACEMENT
+}
+
+enum ReplacementStockHoldState {
+  HELD
+  COMMITTED
+  RELEASED
+}
+
+model ReplacementStockHold {
+  id                     String @id @default(uuid())
+  operationId            String @unique @map("operation_id")
+  shipmentId             String @unique @map("shipment_id")
+  entitlementId          String @map("entitlement_id")
+  sellerOrderId          String @map("seller_order_id")
+  sellerAccountId        String @map("seller_account_id")
+  purchaseId             String @map("purchase_id")
+  commerceSellerOrderId  String @map("commerce_seller_order_id")
+  commercePurchaseLineId String @map("commerce_purchase_line_id")
+  itemId                 Int @map("item_id")
+  quantity               Int
+  inputHash              String @map("input_hash") @inventoryDb.VarChar(64)
+  state                  ReplacementStockHoldState @default(HELD)
+  saleIdentity           Json @map("sale_identity")
+  heldMovementId         Int @unique @map("held_movement_id")
+  releasedMovementId     Int? @unique @map("released_movement_id")
+  soldMovementId         Int? @unique @map("sold_movement_id")
+  createdAt              DateTime @default(now()) @map("created_at") @inventoryDb.Timestamptz(3)
+  updatedAt              DateTime @updatedAt @map("updated_at") @inventoryDb.Timestamptz(3)
+  command                InventoryCommand @relation(fields: [operationId], references: [operationId], onDelete: Restrict, onUpdate: Restrict)
+  item                   Item @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  heldMovement           Movement @relation("ReplacementHold", fields: [heldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+  releasedMovement       Movement? @relation("ReplacementRelease", fields: [releasedMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+  soldMovement           Movement? @relation("ReplacementSale", fields: [soldMovementId, itemId], references: [id, itemId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([heldMovementId, itemId])
+  @@unique([releasedMovementId, itemId])
+  @@unique([soldMovementId, itemId])
+  @@index([sellerOrderId])
+  @@index([itemId, state])
+  @@map("replacement_stock_holds")
 }
 
 model ReturnRestockOperation {
@@ -429,6 +474,7 @@ model InventoryCommand {
   resultOutbox       InventoryResultOutbox[]
   recoveries         InventoryCommandRecovery[]
   reserveClosures    InventoryReserveNoEffectClosure[]
+  replacementHold    ReplacementStockHold?
 
   @@index([resourceType, resourceId, resourceVersion])
   @@index([state, receivedAt])

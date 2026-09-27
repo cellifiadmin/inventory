@@ -98,6 +98,16 @@ it('delivers the existing Fulfillment return and cancellation result shapes', as
   await expect(sendInventoryResult(row({ destination: 'commerce', payload: resultPayloads[0],
     payloadHash: workflowInputHash(resultPayloads[0]) }))).rejects.toThrow('RESULT_INVALID');
 });
+it('delivers an exact replacement stock hold result only to Fulfillment', async () => {
+  const replacement = { ...payload, outcome: 'SUCCEEDED', resourceType: 'replacement-shipment',
+    resourceId: 'shipment', result: { shipmentId: 'shipment', entitlementId: 'entitlement',
+      sellerOrderId: 'order', itemId: 1, heldMovementId: 2, quantity: 1 } };
+  await sendInventoryResult(row({ destination: 'fulfillment', payload: replacement,
+    payloadHash: workflowInputHash(replacement) }));
+  expect(mockSend).toHaveBeenCalledTimes(1);
+  await expect(sendInventoryResult(row({ destination: 'commerce', payload: replacement,
+    payloadHash: workflowInputHash(replacement) }))).rejects.toThrow('RESULT_INVALID');
+});
 it('rejects corrupt persisted lineage or missing configuration before send', async () => {
   for (const changes of [
     { payloadHash: 'different' },
