@@ -1,3 +1,4 @@
+import { validateReturnedIdentity } from '@/inventory/services/saleIdentityService';
 import { z } from 'zod';
 import { MovementDirection, MovementReason, type Prisma } from '@/lib/prismaInventoryTypes';
 import { workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
@@ -9,6 +10,9 @@ export const returnRestockInputObjectSchema = z.object({
   returnId: id,
   sellerOrderId: id,
   sellerAccountId: id,
+  purchaseId: id,
+  commerceSellerOrderId: id,
+  identifiers: z.array(id).max(100),
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   lines: z.array(z.object({ sourceInvId: id, commercePurchaseLineId: id,
     quantity: z.number().int().positive().safe() }).strict()).min(1).max(100),
@@ -45,11 +49,31 @@ export const applyReturnRestock = (rawInput: unknown, transaction?: InventorySto
       resolved.push({ line, item });
     }
     await lockStockItems(tx, resolved.map((row) => row.item.id));
-    const lines = [];
+    const sales = [];
     for (const row of resolved) {
+      const matches = await tx.stockReservation.findMany({ where: {
+        state: 'COMMITTED', itemId: row.item.id, lineId: row.line.commercePurchaseLineId,
+        purchaseId: input.purchaseId, commerceSellerOrderId: input.commerceSellerOrderId,
+        scopeLine: { accountId: input.sellerAccountId, sourceInvId: row.line.sourceInvId },
+      }, include: { soldMovement: true }, take: 2 });
+      const sale = matches[0];
+      if (matches.length !== 1 || !sale.soldMovement || sale.soldMovement.direction !== 'OUT' ||
+        sale.soldMovement.reason !== 'SOLD' || sale.soldMovement.itemId !== row.item.id)
+        throw new Error('RETURN_RESTOCK_SALE_NOT_FOUND');
+      const prior = await tx.movement.aggregate({ where: { itemId: row.item.id, direction: 'IN', reason: 'RETURNED',
+        metadata: { path: ['originalSaleMovementId'], equals: sale.soldMovement.id } }, _sum: { quantity: true } });
+      if (row.line.quantity > sale.soldMovement.quantity - (prior._sum.quantity ?? 0))
+        throw new Error('RETURN_RESTOCK_SOLD_QUANTITY_EXCEEDED');
+      sales.push({ ...row, sale, originalSale: sale.soldMovement });
+    }
+    validateReturnedIdentity(sales.map(row => (row.originalSale.metadata as { saleIdentity?: unknown } | null)?.saleIdentity), input.identifiers);
+    const lines = [];
+    for (const row of sales) {
       const movement = await tx.movement.create({ data: { itemId: row.item.id,
         quantity: row.line.quantity, direction: MovementDirection.IN, reason: MovementReason.RETURNED,
         metadata: { returnId: input.returnId, sellerOrderId: input.sellerOrderId,
+          originalSaleMovementId: row.originalSale.id, reservationId: row.sale.id,
+          purchaseId: input.purchaseId, commerceSellerOrderId: input.commerceSellerOrderId,
           evidenceHash: input.evidenceHash, commercePurchaseLineId: row.line.commercePurchaseLineId } } });
       lines.push({ commercePurchaseLineId: row.line.commercePurchaseLineId, itemId: row.item.id,
         movementId: movement.id, quantity: row.line.quantity });

@@ -3,7 +3,7 @@ import { parseReturnRestockInput } from '@/inventory/services/returnRestockServi
 
 describe('inspected return restock contract', () => {
   const input = () => ({ operationId: 'return:1:restock:v1', returnId: 'return-1',
-    sellerOrderId: 'order-1', sellerAccountId: 'seller-1', evidenceHash: 'a'.repeat(64),
+    sellerOrderId: 'order-1', sellerAccountId: 'seller-1', evidenceHash: 'a'.repeat(64), purchaseId: 'purchase', commerceSellerOrderId: 'commercial-order', identifiers: [],
     lines: [{ sourceInvId: 'phone-1', commercePurchaseLineId: 'line-1', quantity: 1 }] });
 
   it('requires identity evidence and positive unique returned lines', () => {

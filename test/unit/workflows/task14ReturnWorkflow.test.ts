@@ -22,7 +22,7 @@ import { applyReturnRestock } from '@/inventory/services/returnRestockService';
 import { consumeReturnRestockCommand, parseReturnRestockCommand } from '@/inventory/services/workflows/returnRestockCommandService';
 
 const input = () => ({ operationId: 'return:1:restock:v1', returnId: 'return-1', sellerOrderId: 'order-1',
-  sellerAccountId: 'seller-1', evidenceHash: 'a'.repeat(64),
+  sellerAccountId: 'seller-1', evidenceHash: 'a'.repeat(64), purchaseId: 'purchase', commerceSellerOrderId: 'commercial-order', identifiers: [],
   lines: [{ sourceInvId: 'phone-1', commercePurchaseLineId: 'line-1', quantity: 1 }] });
 const command = () => {
   const value: any = { type: 'WORKFLOW_COMMAND', schemaVersion: 1, producer: 'fulfillment',
@@ -32,7 +32,7 @@ const command = () => {
     resourceType: 'return', resourceId: 'return-1', resourceVersion: 1,
     actorIdentifier: 'seller-1', deadlineAt: '2030-01-01T00:00:00.000Z',
     input: { returnId: 'return-1', sellerOrderId: 'order-1', sellerAccountId: 'seller-1',
-      evidenceHash: 'a'.repeat(64), lines: [{ sourceInvId: 'phone-1', commercePurchaseLineId: 'line-1', quantity: 1 }] } };
+      evidenceHash: 'a'.repeat(64), purchaseId: 'purchase', commerceSellerOrderId: 'commercial-order', identifiers: [], lines: [{ sourceInvId: 'phone-1', commercePurchaseLineId: 'line-1', quantity: 1 }] } };
   value.operationInputHash = workflowInputHash({ kind: value.workflowKind, resourceType: value.resourceType,
     resourceId: value.resourceId, resourceVersion: value.resourceVersion, stepKey: value.stepKey,
     participantKey: value.participantKey, input: value.input, deadlineAt: value.deadlineAt });
@@ -43,6 +43,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   tx.item.findUnique.mockResolvedValue({ id: 7, deletedAt: null });
   tx.movement.create.mockResolvedValue({ id: 9 });
+  tx.movement.aggregate = fn({ _sum: { quantity: null } });
+  tx.stockReservation = { findMany: fn([{ id: 'reservation', soldMovement: { id: 8, itemId: 7, direction: 'OUT', reason: 'SOLD', quantity: 1, metadata: { saleIdentity: { version: 1, identifiers: [] } } } }]) };
   tx.returnRestockOperation.findUnique.mockResolvedValue(null);
   tx.inventoryCommand.findUnique.mockResolvedValue(null);
   tx.inventoryCommand.create.mockResolvedValue({ state: 'RECEIVED' });
@@ -125,4 +127,36 @@ describe('return restock command receipt', () => {
     await expect(consumeReturnRestockCommand(value, InventoryCommandProducer.fulfillment)).resolves.toEqual(stored);
     expect(tx.inventoryResultOutbox.create).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('restock original-sale provenance', () => {
+  it('rejects a seller-owned item without the original committed sale', async () => {
+    tx.stockReservation = { findMany: fn([]) };
+    await expect(applyReturnRestock(input(), tx)).rejects.toThrow('RETURN_RESTOCK_SALE_NOT_FOUND');
+    expect(tx.movement.create).not.toHaveBeenCalled();
+  });
+});
+
+it('requires one authentic outbound sale and caps cumulative restored stock under the item lock', async () => {
+ const valid = { id: 'reservation', soldMovement: { id: 8, itemId: 7, direction: 'OUT', reason: 'SOLD', quantity: 2, metadata: { saleIdentity: { version: 1, identifiers: [] } } } };
+ for(const rows of [[valid,valid],[{...valid,soldMovement:null}],
+  [{...valid,soldMovement:{...valid.soldMovement,direction:'IN'}}],
+  [{...valid,soldMovement:{...valid.soldMovement,reason:'STOCKED'}}],
+  [{...valid,soldMovement:{...valid.soldMovement,itemId:999}}]]) {
+   tx.stockReservation.findMany.mockResolvedValue(rows);
+   await expect(applyReturnRestock(input(),tx)).rejects.toThrow('RETURN_RESTOCK_SALE_NOT_FOUND');
+ }
+ tx.stockReservation.findMany.mockResolvedValue([valid]);
+ tx.movement.aggregate.mockResolvedValue({_sum:{quantity:2}});
+ await expect(applyReturnRestock(input(),tx)).rejects.toThrow('RETURN_RESTOCK_SOLD_QUANTITY_EXCEEDED');
+ expect(tx.movement.create).not.toHaveBeenCalled();
+ tx.movement.aggregate.mockResolvedValue({_sum:{quantity:1}});
+ await applyReturnRestock(input(),tx);
+ expect(tx.stockReservation.findMany).toHaveBeenLastCalledWith({where:{state:'COMMITTED',itemId:7,lineId:'line-1',purchaseId:'purchase',commerceSellerOrderId:'commercial-order',scopeLine:{accountId:'seller-1',sourceInvId:'phone-1'}},include:{soldMovement:true},take:2});
+ expect(tx.movement.aggregate).toHaveBeenLastCalledWith({where:{itemId:7,direction:'IN',reason:'RETURNED',metadata:{path:['originalSaleMovementId'],equals:8}},_sum:{quantity:true}});
+});
+it('does not infer historical serials when the immutable sale lacks identity evidence', async () => {
+ tx.stockReservation.findMany.mockResolvedValue([{id:'reservation',soldMovement:{id:8,itemId:7,direction:'OUT',reason:'SOLD',quantity:1,metadata:null}}]);
+ await expect(applyReturnRestock(input(),tx)).rejects.toThrow('RETURN_RESTOCK_SALE_EVIDENCE_MISSING');
+ expect(tx.movement.create).not.toHaveBeenCalled();
 });

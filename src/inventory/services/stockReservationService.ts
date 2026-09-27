@@ -1,3 +1,4 @@
+import { captureSaleIdentity } from '@/inventory/services/saleIdentityService';
 import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
 import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
 import createError from 'http-errors';
@@ -67,6 +68,7 @@ export const reserveStock = async (
       }
       const records = [];
       for (const { line, item } of resolved) {
+        const saleIdentity = await captureSaleIdentity(tx, item.id, line.quantity);
         // A ledger read or preceding line write may have consumed the remaining hold time.
         // Any elapsed line aborts the enclosing transaction, including earlier line effects.
         if (expiresAt <= (await databaseNow(tx)))
@@ -77,6 +79,7 @@ export const reserveStock = async (
             quantity: line.quantity,
             direction: MovementDirection.OUT,
             reason: MovementReason.RESERVED,
+            metadata: { saleIdentity },
           },
         });
         records.push(

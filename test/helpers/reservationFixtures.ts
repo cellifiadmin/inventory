@@ -41,7 +41,7 @@ export const reservationRecord = (
     direction: 'OUT',
     reason: 'RESERVED',
     createdAt: new Date('2030-01-01'),
-    metadata: null,
+    metadata: { saleIdentity: { version: 1, identifiers: [] } },
     createdBy: null,
   },
   ...overrides,

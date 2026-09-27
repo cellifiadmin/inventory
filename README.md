@@ -253,3 +253,26 @@ the three classifier/anchor contract tests have 100% Node line/branch/function c
 Exact source and per-mutant runner artifacts are retained in Stryker-compatible form.
 No running-owner source or datastore is modified by this test; native database,
 queue, model and provider evidence remain separate requirements.
+
+### Original-sale evidence for returned stock
+
+Reservation writes freeze the item's serialized component identifiers in the held
+movement's `saleIdentity` metadata; commitment copies that retained identity into
+the sold movement. Serialized inventory cannot reserve multiple units under one
+identity. Ordinary bulk inventory records an explicit empty identifier set. This
+uses the existing movement ledger and adds no legacy identity fallback.
+
+Return restock commands now require original `purchaseId`,
+`commerceSellerOrderId`, and the inspected `identifiers`. After locking stock,
+Inventory resolves exactly one committed reservation for that purchase/order/line,
+original seller/source item, and genuine outbound sale movement. The identifiers
+must match the retained sale evidence, even if current item components were edited.
+Absent original evidence requires reconciliation; current item data is never used
+to invent historical identity.
+
+Inbound `RETURNED` movements retain the original sale movement and reservation
+identifiers. Aggregate restoration for an original sale may never exceed its sold
+quantity; the same item lock serializes competing return cases and exact replay.
+PostgreSQL tests cover competing cases, cross-purchase rejection, and later identity
+edits. This evidence is application ledger provenance; deployment must separately
+verify restricted runtime database authority for append-only facts.

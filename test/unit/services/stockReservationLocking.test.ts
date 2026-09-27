@@ -44,6 +44,7 @@ const makeTx = () => ({
       },
     ),
   },
+  component: { findMany: asyncMock([]) },
   item: {
     findUnique: asyncMock<{ id: number; deletedAt: Date | null } | null>({
       id: 10,
@@ -412,6 +413,7 @@ describe('commit and release', () => {
       releasedMovementId: 21,
       soldMovementId: 22,
     });
+    expect(mockTx.movement.create).toHaveBeenCalledWith({data:expect.objectContaining({reason:'SOLD',metadata:{saleIdentity:{version:1,identifiers:[]}}})});
     expect(mockTx.stockReservation.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

@@ -1,3 +1,4 @@
+import { readSaleIdentity } from '@/inventory/services/saleIdentityService';
 import { persistReservationTerminalEventInTransaction } from '@/inventory/services/workflows/inventoryTerminalOwnerEventService';
 import { ReservationState, ReservationOperationKind } from '@/constants/reservations';
 import { MovementDirection, MovementReason } from '@/lib/prismaInventoryTypes';
@@ -60,6 +61,7 @@ export const commitStock = async (
             ...data,
             direction: MovementDirection.OUT,
             reason: MovementReason.SOLD,
+            metadata: { saleIdentity: readSaleIdentity((record.heldMovement.metadata as { saleIdentity?: unknown } | null)?.saleIdentity) },
           },
         });
         committed.push(
