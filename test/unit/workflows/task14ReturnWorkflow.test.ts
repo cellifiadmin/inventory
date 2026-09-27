@@ -153,7 +153,7 @@ it('requires one authentic outbound sale and caps cumulative restored stock unde
  tx.movement.aggregate.mockResolvedValue({_sum:{quantity:1}});
  await applyReturnRestock(input(),tx);
  expect(tx.stockReservation.findMany).toHaveBeenLastCalledWith({where:{state:'COMMITTED',itemId:7,lineId:'line-1',purchaseId:'purchase',commerceSellerOrderId:'commercial-order',scopeLine:{accountId:'seller-1',sourceInvId:'phone-1'}},include:{soldMovement:true},take:2});
- expect(tx.movement.aggregate).toHaveBeenLastCalledWith({where:{itemId:7,direction:'IN',reason:'RETURNED',metadata:{path:['originalSaleMovementId'],equals:8}},_sum:{quantity:true}});
+ expect(tx.movement.aggregate).toHaveBeenLastCalledWith({where:{itemId:7,direction:'IN',reason:{in:['RETURNED','RELEASED']},metadata:{path:['originalSaleMovementId'],equals:8}},_sum:{quantity:true}});
 });
 it('does not infer historical serials when the immutable sale lacks identity evidence', async () => {
  tx.stockReservation.findMany.mockResolvedValue([{id:'reservation',soldMovement:{id:8,itemId:7,direction:'OUT',reason:'SOLD',quantity:1,metadata:null}}]);

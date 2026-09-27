@@ -1,3 +1,5 @@
+import { consumeCancellationRestorationCommand } from '@/inventory/services/workflows/cancellationRestorationCommandService';
+import { workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 require('../helpers/purchaseTestEnvironment.cjs');
 
 import { randomUUID } from 'node:crypto';
@@ -13,8 +15,13 @@ describe('returned stock disposition', () => {
   const operationIds: string[] = [];
   const checkoutIds: string[] = [];
   const instanceIds: number[] = [];
+  const commandIds: string[] = [];
 
   afterEach(async () => {
+    await prisma.inventoryResultOutbox.deleteMany({ where: { operationId: { in: commandIds } } });
+    await prisma.inventoryInboxEvent.deleteMany({ where: { operationId: { in: commandIds } } });
+    await prisma.inventoryCommand.deleteMany({ where: { operationId: { in: commandIds } } });
+    commandIds.length = 0;
     const lines = await prisma.returnRestockLine.findMany({ where: { operationId: { in: operationIds } } });
     await prisma.returnRestockLine.deleteMany({ where: { operationId: { in: operationIds } } });
     await prisma.returnRestockOperation.deleteMany({ where: { operationId: { in: operationIds } } });
@@ -77,4 +84,28 @@ describe('returned stock disposition', () => {
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
     expect(await prisma.movement.count({ where: { itemId: item.id, reason: 'RETURNED' } })).toBe(1);
   });
+  it('restores a committed cancellation once and shares the sold-quantity bound with later returns', async () => {
+    const { item, input } = await fixture(2);
+    const { returnId, operationId: _operationId, evidenceHash: _evidenceHash, identifiers: _identifiers, ...scope } = input;
+    const cancellationId = `cancel-${returnId}`;
+    const operationId = `cancellation:${cancellationId}:restore:v1`;
+    commandIds.push(operationId);
+    const cancellationInput = { ...scope, cancellationId };
+    const descriptor = { kind: 'CANCELLATION_RESTORE', resourceType: 'cancellation', resourceId: cancellationId,
+      resourceVersion: 1, stepKey: 'INVENTORY_APPLY_CANCELLATION', participantKey: `inventory:${input.sellerAccountId}`,
+      input: cancellationInput, deadlineAt: new Date(Date.now() + 60000).toISOString() };
+    const command = { type: 'WORKFLOW_COMMAND', schemaVersion: 1, producer: 'fulfillment', command: descriptor.stepKey,
+      eventId: `${operationId}:command`, operationId, executionId: `cancellation:${cancellationId}`, correlationId: input.sellerOrderId,
+      operationInputHash: workflowInputHash(descriptor), workflowKind: descriptor.kind, stepKey: descriptor.stepKey,
+      participantKey: descriptor.participantKey, resourceType: descriptor.resourceType, resourceId: cancellationId,
+      resourceVersion: 1, actorIdentifier: 'fixture-seller', deadlineAt: descriptor.deadlineAt, input: cancellationInput };
+    const results = await Promise.all([consumeCancellationRestorationCommand(command, 'fulfillment'), consumeCancellationRestorationCommand(command, 'fulfillment')]);
+    expect(results[0]).toEqual(results[1]);
+    expect(await prisma.movement.count({ where: { itemId: item.id, metadata: { path: ['restorationKind'], equals: 'CANCELLATION' } } })).toBe(1);
+    expect(await prisma.inventoryResultOutbox.count({ where: { operationId } })).toBe(1);
+    await applyReturnRestock(input);
+    await expect(applyReturnRestock({ ...input, operationId: input.operationId + ':extra', returnId: input.returnId + ':extra' }))
+      .rejects.toThrow('RETURN_RESTOCK_SOLD_QUANTITY_EXCEEDED');
+  });
+
 });

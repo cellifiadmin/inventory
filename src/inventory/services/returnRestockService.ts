@@ -1,8 +1,9 @@
+import { loadRestorableSales } from '@/inventory/services/stockRestorationScope';
 import { validateReturnedIdentity } from '@/inventory/services/saleIdentityService';
 import { z } from 'zod';
 import { MovementDirection, MovementReason, type Prisma } from '@/lib/prismaInventoryTypes';
 import { workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
-import { lockStockItems, withStockTransaction, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
+import { withStockTransaction, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
 
 const id = z.string().trim().min(1).max(191);
 export const returnRestockInputObjectSchema = z.object({
@@ -41,31 +42,7 @@ export const applyReturnRestock = (rawInput: unknown, transaction?: InventorySto
       if (existing.inputHash !== inputHash) throw new Error('RETURN_RESTOCK_IDEMPOTENCY_CONFLICT');
       return returnRestockResultSchema.parse(existing.result);
     }
-    const resolved = [];
-    for (const line of input.lines) {
-      const item = await tx.item.findUnique({ where: { sellerIdentifier_itemCode: {
-        sellerIdentifier: input.sellerAccountId, itemCode: line.sourceInvId } }, select: { id: true, deletedAt: true } });
-      if (!item || item.deletedAt) throw new Error('RETURN_RESTOCK_ITEM_NOT_FOUND');
-      resolved.push({ line, item });
-    }
-    await lockStockItems(tx, resolved.map((row) => row.item.id));
-    const sales = [];
-    for (const row of resolved) {
-      const matches = await tx.stockReservation.findMany({ where: {
-        state: 'COMMITTED', itemId: row.item.id, lineId: row.line.commercePurchaseLineId,
-        purchaseId: input.purchaseId, commerceSellerOrderId: input.commerceSellerOrderId,
-        scopeLine: { accountId: input.sellerAccountId, sourceInvId: row.line.sourceInvId },
-      }, include: { soldMovement: true }, take: 2 });
-      const sale = matches[0];
-      if (matches.length !== 1 || !sale.soldMovement || sale.soldMovement.direction !== 'OUT' ||
-        sale.soldMovement.reason !== 'SOLD' || sale.soldMovement.itemId !== row.item.id)
-        throw new Error('RETURN_RESTOCK_SALE_NOT_FOUND');
-      const prior = await tx.movement.aggregate({ where: { itemId: row.item.id, direction: 'IN', reason: 'RETURNED',
-        metadata: { path: ['originalSaleMovementId'], equals: sale.soldMovement.id } }, _sum: { quantity: true } });
-      if (row.line.quantity > sale.soldMovement.quantity - (prior._sum.quantity ?? 0))
-        throw new Error('RETURN_RESTOCK_SOLD_QUANTITY_EXCEEDED');
-      sales.push({ ...row, sale, originalSale: sale.soldMovement });
-    }
+    const sales = await loadRestorableSales(tx, input);
     validateReturnedIdentity(sales.map(row => (row.originalSale.metadata as { saleIdentity?: unknown } | null)?.saleIdentity), input.identifiers);
     const lines = [];
     for (const row of sales) {

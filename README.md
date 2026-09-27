@@ -276,3 +276,12 @@ quantity; the same item lock serializes competing return cases and exact replay.
 PostgreSQL tests cover competing cases, cross-purchase rejection, and later identity
 edits. This evidence is application ledger provenance; deployment must separately
 verify restricted runtime database authority for append-only facts.
+
+`INVENTORY_APPLY_CANCELLATION` uses the same original-sale scope and cumulative
+restoration check as returns. It requires Fulfillment queue authority and the
+canonical `cancellation:{cancellationId}:restore:v1` operation identity. The command,
+inbox, `IN/RELEASED` movements, immutable result and result outbox commit together.
+Movement metadata distinguishes cancellation restoration from release of an unpaid
+hold. Both cancellation releases and returned stock count against the original sale
+movement's restoration bound. Duplicate commands produce one stock effect; fresh
+receipts may redeliver the retained result. This operation does not refund money.

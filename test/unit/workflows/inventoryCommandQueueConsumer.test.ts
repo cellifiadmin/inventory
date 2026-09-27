@@ -1,9 +1,11 @@
 import { beforeEach, expect, it, jest } from '@jest/globals';
 import type { SQSRecord } from 'aws-lambda';
 const mockConsume = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCancellation = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockReturn = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.mock('@/inventory/services/workflows/inventoryCommandService', () => ({ consumeInventoryCommand: (...args: unknown[]) => mockConsume(...args) }));
 jest.mock('@/inventory/services/workflows/returnRestockCommandService', () => ({ consumeReturnRestockCommand: (...args: unknown[]) => mockReturn(...args) }));
+jest.mock('@/inventory/services/workflows/cancellationRestorationCommandService', () => ({ consumeCancellationRestorationCommand: (...args: unknown[]) => mockCancellation(...args) }));
 import { handler } from '@/handlers/sqs/reservation-operations/process';
 const commerce = 'arn:aws:sqs:us-east-1:000000000000:commerce';
 const fulfillment = 'arn:aws:sqs:us-east-1:000000000000:fulfillment';
@@ -42,4 +44,10 @@ it('rejects invalid, empty, equal and FIFO source configuration before any recor
 it('rejects a non-SQS event source independently', async () => {
   expect(await handler({ Records: [{ ...record('1'), eventSource: 'spoof' }, record('2')] })).toEqual({ batchItemFailures: [{ itemIdentifier: '1' }] });
   expect(mockConsume).toHaveBeenCalledTimes(1);
+});
+
+it('routes cancellation restoration with the queue-derived producer',async()=>{
+ const body=JSON.stringify({command:'INVENTORY_APPLY_CANCELLATION'});
+ expect(await handler({Records:[{...record('cancel',fulfillment),body}]})).toEqual({batchItemFailures:[]});
+ expect(mockCancellation).toHaveBeenCalledWith({command:'INVENTORY_APPLY_CANCELLATION'},'fulfillment');
 });

@@ -1,3 +1,4 @@
+import { consumeCancellationRestorationCommand } from '@/inventory/services/workflows/cancellationRestorationCommandService';
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 import { z } from 'zod';
 import { INVENTORY_WORKFLOW_ENV, InventoryCommandProducer, WORKFLOW_ERROR } from '@/constants/inventoryWorkflows';
@@ -19,7 +20,8 @@ export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQS
       const input = JSON.parse(record.body);
       await ((input as { command?: unknown }).command === 'INVENTORY_APPLY_RETURN'
         ? consumeReturnRestockCommand(input, producer)
-        : consumeInventoryCommand(input, producer));
+        : (input as { command?: unknown }).command === 'INVENTORY_APPLY_CANCELLATION'
+          ? consumeCancellationRestorationCommand(input, producer) : consumeInventoryCommand(input, producer));
     } catch { batchItemFailures.push({ itemIdentifier: record.messageId }); }
   }
   return { batchItemFailures };
