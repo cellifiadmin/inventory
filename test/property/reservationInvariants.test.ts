@@ -1,6 +1,6 @@
 require("../helpers/purchaseTestEnvironment.cjs");
-import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import prisma from "@/lib/prismaInventory";
 import {
   reserveStock,
@@ -11,29 +11,34 @@ import { commitStock } from "@/inventory/services/stockCommitService";
 import { releaseStock } from "@/inventory/services/stockReleaseService";
 import { databaseNow } from "@/inventory/services/stockReservationShared";
 import type { ReservationResult } from "@/inventory/types/stockReservationCommands";
+import { ReservationLedgerModel, stockModelRandom, stockModelSeeds } from "../models/reservationLedgerModel";
 
 // Independent integer ledger model; no implementation transition/arithmetic helpers.
 // Actual owner functions and PostgreSQL are exercised. No external provider calls.
-const seeds = [18, 20260926, 713, 991];
-const random = (seed: number) => () => {
-  seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-  return seed;
-};
 type Entry = {
   quantity: number;
   state: string;
   result: ReservationResult;
   checkoutId: string;
 };
-afterAll(() => prisma.$disconnect());
-it.each(seeds)(
+let casesGenerated = 0;
+afterAll(async () => {
+  if (process.env.CELLIFI_PROPERTY_EVIDENCE)
+    writeFileSync(process.env.CELLIFI_PROPERTY_EVIDENCE, JSON.stringify({
+      schemaVersion: 1, seeds: stockModelSeeds, casesGenerated,
+      modelFile: 'test/models/reservationLedgerModel.ts',
+      modelDigest: createHash('sha256').update(readFileSync('test/models/reservationLedgerModel.ts')).digest('hex'),
+    }, null, 2) + '\n', { mode: 0o600 });
+  await prisma.$disconnect();
+});
+it.each(stockModelSeeds)(
   "matches independent stock ledger under generated operations and replays (seed %s)",
   async (seed) => {
-    const next = random(seed),
+    const next = stockModelRandom(seed),
       prefix = "task18-model-" + randomUUID(),
       stock = 18;
-    let itemId: number | undefined,
-      available = stock;
+    let itemId: number | undefined;
+    const model = new ReservationLedgerModel(stock);
     const entries: Entry[] = [],
       trace: Array<Record<string, unknown>> = [];
     const replays: Array<() => Promise<unknown>> = [];
@@ -56,6 +61,7 @@ it.each(seeds)(
         (await databaseNow(prisma)).getTime() + 300000,
       ).toISOString();
       for (let step = 0; step < 60; step++) {
+        casesGenerated++;
         const action = next() % 5;
         const entry = entries.length
           ? entries[next() % entries.length]
@@ -77,12 +83,12 @@ it.each(seeds)(
               },
             ],
           };
-          trace.push({ action: "reserve", quantity, available });
-          if (quantity > available)
+          trace.push({ action: "reserve", quantity, available: model.available });
+          if (!model.canReserve(quantity))
             await expect(reserveStock(input)).rejects.toThrow();
           else {
             const result = await reserveStock(input);
-            available -= quantity;
+            model.reserve(quantity);
             entries.push({ quantity, checkoutId, result, state: "HELD" });
             replays.push(() => reserveStock(input));
           }
@@ -137,7 +143,7 @@ it.each(seeds)(
           } else {
             entry.result = await releaseStock(input);
             entry.state = "RELEASED";
-            available += entry.quantity;
+            model.release(entry.quantity);
             replays.push(() => releaseStock(input));
           }
         } else if (replays.length) {
@@ -160,8 +166,8 @@ it.each(seeds)(
           (n, m) => n + (m.direction === "IN" ? m.quantity : -m.quantity),
           0,
         );
-        expect(available).toBeGreaterThanOrEqual(0);
-        expect(actualBalance).toBe(available);
+        expect(model.available).toBeGreaterThanOrEqual(0);
+        expect(actualBalance).toBe(model.available);
         const reservations = await prisma.stockReservation.findMany({
           where: { itemId },
         });
