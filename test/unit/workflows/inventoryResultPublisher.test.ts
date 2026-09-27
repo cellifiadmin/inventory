@@ -109,6 +109,7 @@ it('delivers an exact replacement stock hold result only to Fulfillment', async 
     payloadHash: workflowInputHash(replacement) }))).rejects.toThrow('RESULT_INVALID');
 });
 it('rejects corrupt persisted lineage or missing configuration before send', async () => {
+  await expect(sendInventoryResult(row({ payload: null as never }))).rejects.toThrow();
   for (const changes of [
     { payloadHash: 'different' },
     { operationId: 'other' },
