@@ -1,0 +1,81 @@
+{
+  "tests": [
+    "test/unit/services/stockReservationLocking.test.ts",
+    "src/__tests__/unit/services/stockReservationService.test.ts"
+  ],
+  "mutations": [
+    {
+      "file": "src/inventory/services/stockReservationService.ts",
+      "name": "ReserveAvailableBalance",
+      "from": "(await stockBalance(tx, itemId)) < quantity",
+      "to": "(await stockBalance(tx, itemId)) < 0"
+    },
+    {
+      "file": "src/inventory/services/stockReservationService.ts",
+      "name": "AggregateSameItemClaims",
+      "from": "(quantities.get(item.id) ?? 0) + line.quantity",
+      "to": "line.quantity"
+    },
+    {
+      "file": "src/inventory/services/stockReservationService.ts",
+      "name": "ExpiryDuringReservation",
+      "from": "if (expiresAt <= (await databaseNow(tx)))",
+      "to": "if (false)"
+    },
+    {
+      "file": "src/inventory/services/reservationProtectionService.ts",
+      "name": "ProtectOnlyHeld",
+      "from": "record.state !== ReservationState.HELD ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/reservationProtectionService.ts",
+      "name": "ProtectBeforeExpiry",
+      "from": "record.expiresAt <= now ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/reservationProtectionService.ts",
+      "name": "ProtectMonotonicFence",
+      "from": "input.fence <= record.fence",
+      "to": "false"
+    },
+    {
+      "file": "src/inventory/services/stockCommitService.ts",
+      "name": "CommitOnlyProtected",
+      "from": "record.state !== ReservationState.PAYMENT_LOCKED ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/stockCommitService.ts",
+      "name": "CommitPaymentScope",
+      "from": "record.paymentScopeId !== input.paymentScopeId ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/stockCommitService.ts",
+      "name": "CommitExactFence",
+      "from": "record.fence !== input.fence",
+      "to": "false"
+    },
+    {
+      "file": "src/inventory/services/stockReleaseService.ts",
+      "name": "ReleaseFinancialScope",
+      "from": "proof.paymentScopeId !== record.paymentScopeId ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/stockReleaseService.ts",
+      "name": "ReleaseFinancialFence",
+      "from": "proof.fence <= record.fence ||",
+      "to": "false ||"
+    },
+    {
+      "file": "src/inventory/services/stockReleaseService.ts",
+      "name": "ReleaseClosedScopeTime",
+      "from": "new Date(proof.scopeClosedAt) > now",
+      "to": "false"
+    }
+  ],
+  "equivalentExclusions": []
+}

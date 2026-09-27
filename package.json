@@ -28,7 +28,8 @@
     "test:purchase:coverage": "npm run test:purchase:unit -- --coverage",
     "local:queue:ensure": "bash scripts/ensure-local-workflow-queues.sh",
     "test:purchase:runtime": "jest --runInBand --config jest.purchase-runtime.config.cjs",
-    "test:purchase:property": "jest --runInBand test/property"
+    "test:purchase:property": "jest --runInBand test/property",
+    "test:purchase:mutations": "node scripts/run-purchase-mutations.cjs"
   },
   "prisma": {
     "seed": "echo 'Inventory service does not define a seed yet'"

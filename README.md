@@ -242,3 +242,14 @@ unproved protected releases, and historical command replays. Cleanup is limited
 to unique test-owned scopes/items. Failure output retains the seed and failing
 prefix under ignored coverage output. This supplements the native expiry/race
 suites; it does not claim generated expiry coverage or provider acceptance.
+
+Targeted stock guard mutations run with
+`CELLIFI_MUTATION_OUTPUT=/absolute/private/report-directory npm run test:purchase:mutations`.
+The sequential runner executes a passing baseline and 12 mutations in a private
+source/test copy, covering shared-item capacity, expiry during reservation,
+protection state/time/fence, commit scope/fence, and verified-release scope/time/fence.
+All 12 are killed by actual assertions. Compile/setup failures do not count as kills;
+the three classifier/anchor contract tests have 100% Node line/branch/function coverage.
+Exact source and per-mutant runner artifacts are retained in Stryker-compatible form.
+No running-owner source or datastore is modified by this test; native database,
+queue, model and provider evidence remain separate requirements.
