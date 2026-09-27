@@ -19,6 +19,8 @@ function invokeWrapper(overrides, forwarded, expectedStatus = 0) {
     delete environment.CELLIFI_INFRASTRUCTURE_ROOT;
     delete environment.CELLIFI_LOCAL_WORKFLOW_RUNTIME_FILE;
     Object.assign(environment, overrides);
+    const stage = environment.CELLIFI_LOCAL_STAGE === 'test' ? 'test' : 'local';
+    environment.INVENTORY_DATABASE_URL = `postgresql://${stage === 'test' ? 'inventory_test_runtime' : 'inventory_runtime'}:synthetic@localhost:5432/inventory_${stage}`;
     const result = spawnSync('bash', [wrapper, ...forwarded], { cwd: directory, env: environment, encoding: 'utf8' });
     assert.equal(result.status, expectedStatus, result.stderr);
     return expectedStatus === 0 ? JSON.parse(result.stdout) : result;

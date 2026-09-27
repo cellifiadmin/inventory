@@ -280,6 +280,20 @@ PostgreSQL tests cover competing cases, cross-purchase rejection, and later iden
 edits. This evidence is application ledger provenance; deployment must separately
 verify restricted runtime database authority for append-only facts.
 
+Inventory's local workflow launcher now accepts only a separate nonowner
+`inventory_runtime` login for `inventory_local` or `inventory_test_runtime` for
+`inventory_test`, supplied through `INVENTORY_DATABASE_URL` or a private
+`.env.database.<stage>` file. It strips inherited migration, cross-service and
+libpq database credentials before Serverless starts. The existing `.env.local`
+and `.env.test` owner URLs remain migration authority only. Infrastructure's
+`.env.database.local.example` and `.env.database.test.example` show the private
+runtime-file shape after Terraform creates the corresponding login. Inventory
+`inventory_database_access` Terraform module and canonical secrets-template flow
+provision the production runtime login and explicit table grants; publication
+requires the access rollout gate. The isolated native permission fixture proved
+the application login is granted read/insert movement access but cannot update, delete,
+truncate or read Prisma migration history.
+
 `INVENTORY_APPLY_CANCELLATION` uses the same original-sale scope and cumulative
 restoration check as returns. It requires Fulfillment queue authority and the
 canonical `cancellation:{cancellationId}:restore:v1` operation identity. The command,

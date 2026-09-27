@@ -5,7 +5,7 @@
   "scripts": {
     "test": "jest --runInBand",
     "test:unit": "jest --runInBand test/unit",
-    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs test/unit/config/purchaseCoverageConfig.test.cjs test/unit/config/localWorkflowStartup.test.mjs",
+    "test:config": "node --test test/unit/config/serviceSkeleton.test.mjs test/unit/config/serverlessRoutes.test.mjs test/unit/config/localDatabaseSetup.test.mjs test/unit/config/prismaPackagingContract.test.mjs test/unit/config/objectStoragePublicUrlContract.test.mjs test/unit/config/objectStorageSdkContract.test.mjs test/unit/config/purchaseCoverageConfig.test.cjs test/unit/config/localWorkflowStartup.test.mjs test/unit/config/applicationDatabaseBoundary.test.cjs",
     "ensure:sharp:lambda": "npm install --no-save --os=linux --cpu=x64 --libc=glibc sharp",
     "local:db:setup": "bash scripts/setup-local-db.sh",
     "test:db:setup": "bash scripts/setup-test-db.sh",

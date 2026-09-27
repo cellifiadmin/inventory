@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+unset INVENTORY_MIGRATION_DATABASE_URL
+
 stage="${CELLIFI_LOCAL_STAGE:-local}"
 case "${stage}" in
   local|test) ;;
@@ -20,6 +22,6 @@ infrastructure_root="${CELLIFI_INFRASTRUCTURE_ROOT:-${service_root}/../infrastru
 runtime_file="${CELLIFI_LOCAL_WORKFLOW_RUNTIME_FILE:-${service_root}/../.local/workflows/${stage}.json}"
 
 cd "${service_root}"
-exec python3 "${infrastructure_root}/scripts/run-local-workflow-service.py" \
+exec node "${service_root}/scripts/run-application.cjs" "${stage}" "${infrastructure_root}/scripts/run-local-workflow-service.py" \
   --service inventory --stage "${stage}" --runtime-file "${runtime_file}" \
   -- "${service_root}/node_modules/.bin/serverless" offline start --stage local "$@"

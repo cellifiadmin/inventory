@@ -56,5 +56,6 @@ test('inventory local and test database contract includes bootstrap scripts and 
     '20260912065024_inventory_reservation_expiry_owner_events',
     '20260912074445_inventory_reservation_terminal_owner_events',
     '20260919160000_return_restock_operations',
+    '20260927173000_replacement_stock_holds',
   ]);
 });
