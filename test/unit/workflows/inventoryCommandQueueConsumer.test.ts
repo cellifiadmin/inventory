@@ -59,3 +59,10 @@ it('routes replacement reserve only with the queue-derived Fulfillment producer'
     .toEqual({ batchItemFailures: [] });
   expect(mockReplacement).toHaveBeenCalledWith({ command: 'INVENTORY_RESERVE_REPLACEMENT' }, 'fulfillment');
 });
+it.each(['INVENTORY_COMMIT_REPLACEMENT', 'INVENTORY_RELEASE_REPLACEMENT'])(
+  'routes %s with the queue-derived Fulfillment producer', async command => {
+    const body = JSON.stringify({ command });
+    expect(await handler({ Records: [{ ...record(command, fulfillment), body }] }))
+      .toEqual({ batchItemFailures: [] });
+    expect(mockReplacement).toHaveBeenCalledWith({ command }, 'fulfillment');
+  });

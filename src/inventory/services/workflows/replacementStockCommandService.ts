@@ -2,24 +2,33 @@ import { z } from 'zod';
 import { InventoryCommandProducer } from '@/constants/inventoryWorkflows';
 import { databaseNow, withStockTransaction } from '@/inventory/services/stockReservationShared';
 import { replacementReserveInputSchema, replacementReserveResultSchema,
-  reserveReplacementStock } from '@/inventory/services/replacementStockService';
+  replacementTransitionInputSchema, replacementTransitionResultSchema,
+  reserveReplacementStock, transitionReplacementStock } from '@/inventory/services/replacementStockService';
 import { canonicalWorkflowInput, workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 
 const id = z.string().trim().min(1).max(191);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const envelopeSchema = z.object({ type: z.literal('WORKFLOW_COMMAND'), schemaVersion: z.literal(1),
   producer: z.literal(InventoryCommandProducer.fulfillment),
-  command: z.literal('INVENTORY_RESERVE_REPLACEMENT'), eventId: id,
+  command: z.enum(['INVENTORY_RESERVE_REPLACEMENT', 'INVENTORY_COMMIT_REPLACEMENT',
+    'INVENTORY_RELEASE_REPLACEMENT']), eventId: id,
   operationId: z.string().min(1).max(160), executionId: id, correlationId: id,
   operationInputHash: hash, workflowKind: z.literal('REPLACEMENT_STOCK'),
-  stepKey: z.literal('INVENTORY_RESERVE_REPLACEMENT'), participantKey: id,
+  stepKey: z.enum(['INVENTORY_RESERVE_REPLACEMENT', 'INVENTORY_COMMIT_REPLACEMENT',
+    'INVENTORY_RELEASE_REPLACEMENT']), participantKey: id,
   resourceType: z.literal('replacement-shipment'), resourceId: id, resourceVersion: z.literal(1),
   actorIdentifier: id, deadlineAt: z.string().datetime({ offset: true }),
-  input: replacementReserveInputSchema }).strict().superRefine((event, ctx) => {
+  input: z.union([replacementReserveInputSchema, replacementTransitionInputSchema]) }).strict().superRefine((event, ctx) => {
     const expected = workflowInputHash({ kind: event.workflowKind, resourceType: event.resourceType,
       resourceId: event.resourceId, resourceVersion: event.resourceVersion, stepKey: event.stepKey,
       participantKey: event.participantKey, input: event.input, deadlineAt: event.deadlineAt });
-    if (event.operationId !== `replacement:${event.input.shipmentId}:reserve:v1` ||
+    const phase = event.command === 'INVENTORY_RESERVE_REPLACEMENT' ? 'reserve'
+      : event.command === 'INVENTORY_COMMIT_REPLACEMENT' ? 'commit' : 'release';
+    if (event.stepKey !== event.command ||
+      event.operationId !== `replacement:${event.input.shipmentId}:${phase}:v1` ||
+      (phase === 'reserve' && 'holdOperationId' in event.input) ||
+      (phase !== 'reserve' && (!('holdOperationId' in event.input) ||
+        event.input.holdOperationId !== `replacement:${event.input.shipmentId}:reserve:v1`)) ||
       event.resourceId !== event.input.shipmentId ||
       event.executionId !== `replacement:${event.input.shipmentId}` ||
       event.correlationId !== event.input.sellerOrderId ||
@@ -32,12 +41,14 @@ const commonResult = { type: z.literal('WORKFLOW_RESULT'), schemaVersion: z.lite
   executionId: id, correlationId: id, operationInputHash: hash,
   resourceType: z.literal('replacement-shipment'), resourceId: id, resourceVersion: z.literal(1) };
 export const replacementStockResultSchema = z.discriminatedUnion('outcome', [
-  z.object({ ...commonResult, outcome: z.literal('SUCCEEDED'), result: replacementReserveResultSchema }).strict(),
+  z.object({ ...commonResult, outcome: z.literal('SUCCEEDED'), result: z.union([
+    replacementReserveResultSchema, replacementTransitionResultSchema]) }).strict(),
   z.object({ ...commonResult, outcome: z.literal('FAILED'), result: z.object({
     errorCode: id, recoveryRequired: z.literal(false), noEffect: z.null() }).strict() }).strict(),
 ]);
 const noEffectErrors = new Set(['REPLACEMENT_STOCK_ITEM_NOT_FOUND', 'REPLACEMENT_STOCK_SALE_NOT_FOUND',
-  'REPLACEMENT_STOCK_UNAVAILABLE', 'SERIALIZED_SALE_QUANTITY_INVALID']);
+  'REPLACEMENT_STOCK_UNAVAILABLE', 'SERIALIZED_SALE_QUANTITY_INVALID',
+  'REPLACEMENT_STOCK_ALREADY_RESOLVED', 'REPLACEMENT_STOCK_HOLD_SCOPE_CONFLICT']);
 
 export const consumeReplacementStockCommand = (rawInput: unknown, expectedProducer: InventoryCommandProducer) => {
   const event = envelopeSchema.parse(rawInput);
@@ -74,7 +85,10 @@ export const consumeReplacementStockCommand = (rawInput: unknown, expectedProduc
     try {
       if (new Date(event.deadlineAt) <= await databaseNow(tx))
         throw new Error('REPLACEMENT_STOCK_DEADLINE_EXPIRED');
-      result = await reserveReplacementStock({ operationId: event.operationId, ...event.input }, tx);
+      result = event.command === 'INVENTORY_RESERVE_REPLACEMENT'
+        ? await reserveReplacementStock({ operationId: event.operationId, ...event.input }, tx)
+        : await transitionReplacementStock(event.input,
+          event.command === 'INVENTORY_COMMIT_REPLACEMENT' ? 'COMMIT' : 'RELEASE', tx);
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
       if (!noEffectErrors.has(code) && code !== 'REPLACEMENT_STOCK_DEADLINE_EXPIRED') throw error;

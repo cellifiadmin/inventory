@@ -23,7 +23,8 @@ export const consumeInventoryCommandBatch = async (event: SQSEvent): Promise<SQS
         ? consumeReturnRestockCommand(input, producer)
         : (input as { command?: unknown }).command === 'INVENTORY_APPLY_CANCELLATION'
           ? consumeCancellationRestorationCommand(input, producer)
-          : (input as { command?: unknown }).command === 'INVENTORY_RESERVE_REPLACEMENT'
+          : ['INVENTORY_RESERVE_REPLACEMENT', 'INVENTORY_COMMIT_REPLACEMENT',
+            'INVENTORY_RELEASE_REPLACEMENT'].includes((input as { command?: string }).command ?? '')
             ? consumeReplacementStockCommand(input, producer) : consumeInventoryCommand(input, producer));
     } catch { batchItemFailures.push({ itemIdentifier: record.messageId }); }
   }

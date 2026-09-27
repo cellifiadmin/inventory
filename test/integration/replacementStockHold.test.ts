@@ -18,7 +18,8 @@ afterEach(async () => {
   const holdClient = (prisma as unknown as { replacementStockHold?: typeof prisma.replacementStockHold }).replacementStockHold;
   const holds = holdClient ? await holdClient.findMany({ where: { operationId: { in: holdIds } } }) : [];
   if (holdClient) await holdClient.deleteMany({ where: { operationId: { in: holdIds } } });
-  await prisma.movement.deleteMany({ where: { id: { in: holds.map(row => row.heldMovementId) } } });
+  await prisma.movement.deleteMany({ where: { id: { in: holds.flatMap(row => [row.heldMovementId,
+    row.releasedMovementId, row.soldMovementId].filter((value): value is number => value !== null)) } } });
   await prisma.inventoryResultOutbox.deleteMany({ where: { operationId: { in: holdIds } } });
   await prisma.inventoryInboxEvent.deleteMany({ where: { operationId: { in: holdIds } } });
   await prisma.inventoryCommand.deleteMany({ where: { operationId: { in: holdIds } } });
@@ -104,4 +105,51 @@ it('reserves exact original-sale stock once and rejects a competing replacement'
   expect(await consumeReplacementStockCommand(foreignPurchase, 'fulfillment'))
     .toMatchObject({ outcome: 'FAILED', result: { errorCode: 'REPLACEMENT_STOCK_SALE_NOT_FOUND' } });
   expect(await prisma.replacementStockHold.count({ where: { operationId: { in: holdIds } } })).toBe(1);
+  const phaseCommand = (phase: 'RELEASE' | 'COMMIT', reserve: typeof command, reserveResult: typeof results[0]) => {
+    if (reserveResult.outcome !== 'SUCCEEDED') throw new Error('Expected held replacement');
+    const transitionInput = { ...reserve.input, holdOperationId: reserve.operationId,
+      itemId: reserveResult.result.itemId, heldMovementId: reserveResult.result.heldMovementId };
+    const nextId = `replacement:${reserve.resourceId}:${phase.toLowerCase()}:v1`;
+    const stepKey = `INVENTORY_${phase}_REPLACEMENT`;
+    const nextDescriptor = { ...descriptor, resourceId: reserve.resourceId, stepKey,
+      input: transitionInput };
+    holdIds.push(nextId);
+    return { ...reserve, operationId: nextId, command: stepKey, stepKey,
+      eventId: `${nextId}:command`, operationInputHash: workflowInputHash(nextDescriptor),
+      input: transitionInput };
+  };
+  const release = phaseCommand('RELEASE', command, results[0]);
+  const released = await consumeReplacementStockCommand(release, 'fulfillment');
+  expect(released).toMatchObject({ outcome: 'SUCCEEDED', result: {
+    shipmentId: command.resourceId, phase: 'RELEASE', itemId: item.id, soldMovementId: null } });
+  expect(await consumeReplacementStockCommand(release, 'fulfillment')).toEqual(released);
+  expect(await stockBalance(prisma, item.id)).toBe(1);
+  const nextReserve = another(`committed-${suffix}`);
+  const nextHeld = await consumeReplacementStockCommand(nextReserve, 'fulfillment');
+  expect(nextHeld.outcome).toBe('SUCCEEDED');
+  const commit = phaseCommand('COMMIT', nextReserve, nextHeld);
+  const committed = await consumeReplacementStockCommand(commit, 'fulfillment');
+  expect(committed).toMatchObject({ outcome: 'SUCCEEDED', result: {
+    shipmentId: nextReserve.resourceId, phase: 'COMMIT', itemId: item.id,
+    soldMovementId: expect.any(Number) } });
+  expect(await consumeReplacementStockCommand(commit, 'fulfillment')).toEqual(committed);
+  expect(await stockBalance(prisma, item.id)).toBe(0);
+  expect(await prisma.replacementStockHold.findUniqueOrThrow({ where: { shipmentId: nextReserve.resourceId } }))
+    .toMatchObject({ state: 'COMMITTED', soldMovementId: expect.any(Number) });
+  await prisma.movement.create({ data: { itemId: item.id, direction: 'IN', reason: 'STOCKED', quantity: 1 } });
+  const raceReserve = another(`race-${suffix}`);
+  const raceHeld = await consumeReplacementStockCommand(raceReserve, 'fulfillment');
+  expect(raceHeld.outcome).toBe('SUCCEEDED');
+  const [commitRace, releaseRace] = await Promise.all([
+    consumeReplacementStockCommand(phaseCommand('COMMIT', raceReserve, raceHeld), 'fulfillment'),
+    consumeReplacementStockCommand(phaseCommand('RELEASE', raceReserve, raceHeld), 'fulfillment'),
+  ]);
+  const outcomes = [commitRace, releaseRace];
+  expect(outcomes.filter(row => row.outcome === 'SUCCEEDED')).toHaveLength(1);
+  expect(outcomes.filter(row => row.outcome === 'FAILED')).toEqual([
+    expect.objectContaining({ result: expect.objectContaining({ errorCode: 'REPLACEMENT_STOCK_ALREADY_RESOLVED' }) }),
+  ]);
+  const resolved = await prisma.replacementStockHold.findUniqueOrThrow({ where: { shipmentId: raceReserve.resourceId } });
+  expect(['COMMITTED', 'RELEASED']).toContain(resolved.state);
+  expect(await stockBalance(prisma, item.id)).toBe(resolved.state === 'RELEASED' ? 1 : 0);
 });

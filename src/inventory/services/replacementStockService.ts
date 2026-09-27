@@ -11,6 +11,13 @@ export const replacementReserveInputSchema = z.object({ shipmentId: id, entitlem
 export const replacementReserveResultSchema = z.object({ shipmentId: id, entitlementId: id,
   sellerOrderId: id, itemId: z.number().int().positive(), heldMovementId: z.number().int().positive(),
   quantity: z.number().int().positive() }).strict();
+export const replacementTransitionInputSchema = replacementReserveInputSchema.extend({
+  holdOperationId: z.string().min(1).max(160), itemId: z.number().int().positive(),
+  heldMovementId: z.number().int().positive() }).strict();
+export const replacementTransitionResultSchema = z.object({ shipmentId: id, entitlementId: id,
+  sellerOrderId: id, itemId: z.number().int().positive(), heldMovementId: z.number().int().positive(),
+  releasedMovementId: z.number().int().positive(), soldMovementId: z.number().int().positive().nullable(),
+  quantity: z.number().int().positive(), phase: z.enum(['COMMIT', 'RELEASE']) }).strict();
 
 export const reserveReplacementStock = async (rawInput: unknown, tx: InventoryStockTransaction) => {
   const input = z.object({ operationId: z.string().min(1).max(160) })
@@ -54,4 +61,41 @@ export const reserveReplacementStock = async (rawInput: unknown, tx: InventorySt
   return replacementReserveResultSchema.parse({ shipmentId: input.shipmentId,
     entitlementId: input.entitlementId, sellerOrderId: input.sellerOrderId,
     itemId: item.id, heldMovementId: heldMovement.id, quantity: input.quantity });
+};
+
+export const transitionReplacementStock = async (rawInput: unknown,
+  phase: 'COMMIT' | 'RELEASE', tx: InventoryStockTransaction) => {
+  const input = replacementTransitionInputSchema.parse(rawInput);
+  const first = await tx.replacementStockHold.findUnique({ where: { operationId: input.holdOperationId } });
+  if (!first) throw new Error('REPLACEMENT_STOCK_HOLD_NOT_FOUND');
+  await lockStockItems(tx, [first.itemId]);
+  const hold = await tx.replacementStockHold.findUniqueOrThrow({ where: { operationId: input.holdOperationId } });
+  if (hold.state !== 'HELD') throw new Error('REPLACEMENT_STOCK_ALREADY_RESOLVED');
+  if (hold.shipmentId !== input.shipmentId || hold.entitlementId !== input.entitlementId ||
+    hold.sellerOrderId !== input.sellerOrderId || hold.sellerAccountId !== input.sellerAccountId ||
+    hold.purchaseId !== input.purchaseId || hold.commerceSellerOrderId !== input.commerceSellerOrderId ||
+    hold.commercePurchaseLineId !== input.commercePurchaseLineId || hold.itemId !== input.itemId ||
+    hold.heldMovementId !== input.heldMovementId || hold.quantity !== input.quantity)
+    throw new Error('REPLACEMENT_STOCK_HOLD_SCOPE_CONFLICT');
+  const item = await tx.item.findUniqueOrThrow({ where: { id: hold.itemId } });
+  if (item.sellerIdentifier !== input.sellerAccountId || item.itemCode !== input.sourceInvId)
+    throw new Error('REPLACEMENT_STOCK_HOLD_SCOPE_CONFLICT');
+  const released = await tx.movement.create({ data: { itemId: hold.itemId,
+    quantity: hold.quantity, direction: 'IN', reason: 'RELEASED',
+    metadata: { replacementShipmentId: hold.shipmentId, entitlementId: hold.entitlementId,
+      heldMovementId: hold.heldMovementId, resolution: phase } } });
+  const sold = phase === 'COMMIT' ? await tx.movement.create({ data: { itemId: hold.itemId,
+    quantity: hold.quantity, direction: 'OUT', reason: 'REPLACEMENT',
+    metadata: { replacementShipmentId: hold.shipmentId, entitlementId: hold.entitlementId,
+      sellerOrderId: hold.sellerOrderId, purchaseId: hold.purchaseId,
+      commerceSellerOrderId: hold.commerceSellerOrderId,
+      commercePurchaseLineId: hold.commercePurchaseLineId,
+      heldMovementId: hold.heldMovementId, saleIdentity: hold.saleIdentity as Prisma.InputJsonValue } } }) : null;
+  await tx.replacementStockHold.update({ where: { id: hold.id }, data: { state: phase === 'COMMIT' ? 'COMMITTED' : 'RELEASED',
+    releasedMovementId: released.id, soldMovementId: sold?.id ?? null } });
+  return replacementTransitionResultSchema.parse({ shipmentId: hold.shipmentId,
+    entitlementId: hold.entitlementId, sellerOrderId: hold.sellerOrderId,
+    itemId: hold.itemId, heldMovementId: hold.heldMovementId,
+    releasedMovementId: released.id, soldMovementId: sold?.id ?? null,
+    quantity: hold.quantity, phase });
 };

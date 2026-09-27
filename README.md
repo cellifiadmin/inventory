@@ -297,6 +297,10 @@ movement plus a `replacement_stock_hold` linked to the immutable command and
 movement. Exact replay returns the same result; insufficient or foreign stock
 produces a durable no-effect failure that Fulfillment uses to release entitlement
 allocation. The result outbox validates and sends the replacement result to
-Fulfillment. Apply migration `20260927173000_replacement_stock_holds` before
-enabling the consumer. A held replacement cannot yet be committed or released;
-the follow-on operation phases are required before shipping or cancellation.
+Fulfillment. `INVENTORY_COMMIT_REPLACEMENT` resolves a hold with matching
+`IN/RELEASED` and `OUT/REPLACEMENT` movements; `INVENTORY_RELEASE_REPLACEMENT`
+restores the held stock with `IN/RELEASED`. Both phases use deterministic command
+identities and the same item lock, so a commit/release race has only one stock
+effect. A hold-state constraint requires the corresponding movement references.
+Apply migration `20260927173000_replacement_stock_holds` before enabling these
+consumers.
