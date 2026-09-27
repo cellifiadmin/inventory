@@ -81,6 +81,23 @@ it('sends exactly the immutable body to the trusted destination using Standard q
     expect(Object.keys(command).sort()).toEqual(['MessageBody', 'QueueUrl']);
   expect(JSON.parse(commands[0].MessageBody!)).toEqual(payload);
 });
+it('delivers the existing Fulfillment return and cancellation result shapes', async () => {
+  const base = { ...payload, outcome: 'SUCCEEDED', resourceId: 'resource',
+    operationId: 'operation', eventId: 'operation:result' };
+  const resultPayloads = [
+    { ...base, resourceType: 'return', result: { returnId: 'resource', sellerOrderId: 'order',
+      evidenceHash: 'b'.repeat(64), lines: [{ commercePurchaseLineId: 'line', itemId: 1,
+        movementId: 2, quantity: 1 }] } },
+    { ...base, resourceType: 'cancellation', result: { cancellationId: 'resource', sellerOrderId: 'order',
+      lines: [{ commercePurchaseLineId: 'line', itemId: 1, movementId: 2, quantity: 1 }] } },
+  ];
+  for (const result of resultPayloads)
+    await sendInventoryResult(row({ destination: 'fulfillment', payload: result,
+      payloadHash: workflowInputHash(result) }));
+  expect(mockSend).toHaveBeenCalledTimes(2);
+  await expect(sendInventoryResult(row({ destination: 'commerce', payload: resultPayloads[0],
+    payloadHash: workflowInputHash(resultPayloads[0]) }))).rejects.toThrow('RESULT_INVALID');
+});
 it('rejects corrupt persisted lineage or missing configuration before send', async () => {
   for (const changes of [
     { payloadHash: 'different' },

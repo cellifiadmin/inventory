@@ -193,6 +193,9 @@ resolved items, writes `RETURNED` inbound movements and a durable
 `return_restock_operation` in one transaction. Matching command replay returns the
 stored result; changed evidence or scope is rejected without another movement.
 The normal Inventory result outbox publishes the completion back to Fulfillment.
+The result publisher validates the Fulfillment-owned return and cancellation
+success envelopes separately from checkout reservation results, preserving their
+strict resource-specific shapes before sending to the Fulfillment result queue.
 Apply migration `20260919160000_return_restock_operations` before starting the
 command consumer.
 

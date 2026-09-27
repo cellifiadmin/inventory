@@ -1,15 +1,34 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { InventoryResultOutbox } from '.prisma/inventoryClient';
 import { INVENTORY_RECOVERY, INVENTORY_RESULT_DELIVERY as DELIVERY, INVENTORY_WORKFLOW_ENV as ENV, InventoryCommandProducer, InventoryResultDeliveryState as STATE, WORKFLOW_ERROR } from '@/constants/inventoryWorkflows';
 import { resolveAwsClientConfig } from '@/lib/awsClientConfig';
 import { databaseNow, withStockTransaction, type InventoryStockTransaction } from '@/inventory/services/stockReservationShared';
 import { inventoryResultEnvelopeSchema } from '@/inventory/types/inventoryWorkflowEnvelope';
+import { returnRestockResultSchema } from '@/inventory/services/returnRestockService';
+import { cancellationRestorationResultSchema } from '@/inventory/services/cancellationRestorationService';
 import { canonicalWorkflowInput, workflowInputHash } from '@/inventory/services/workflows/workflowIdentity';
 
 const sqs = new SQSClient({ ...resolveAwsClientConfig(), maxAttempts: 2 });
+const ownerResultFields = { type: z.literal('WORKFLOW_RESULT'), schemaVersion: z.literal(1),
+  producer: z.literal('inventory'), eventId: z.string().min(1).max(191),
+  operationId: z.string().min(1).max(160), executionId: z.string().min(1).max(191),
+  correlationId: z.string().min(1).max(191), operationInputHash: z.string().regex(/^[a-f0-9]{64}$/),
+  resourceId: z.string().min(1).max(191), resourceVersion: z.literal(1),
+  outcome: z.literal('SUCCEEDED') };
+const fulfillmentOwnerResultSchema = z.discriminatedUnion('resourceType', [
+  z.object({ ...ownerResultFields, resourceType: z.literal('return'), result: returnRestockResultSchema }).strict(),
+  z.object({ ...ownerResultFields, resourceType: z.literal('cancellation'), result: cancellationRestorationResultSchema }).strict(),
+]);
 export const sendInventoryResult = async (row: InventoryResultOutbox): Promise<void> => {
-  const payload = inventoryResultEnvelopeSchema.parse(row.payload);
+  const resourceType = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+    ? (row.payload as { resourceType?: unknown }).resourceType : null;
+  const fulfillmentOwner = resourceType === 'return' || resourceType === 'cancellation';
+  if (fulfillmentOwner && row.destination !== InventoryCommandProducer.fulfillment)
+    throw new Error(WORKFLOW_ERROR.RESULT_INVALID);
+  const payload = fulfillmentOwner ? fulfillmentOwnerResultSchema.parse(row.payload)
+    : inventoryResultEnvelopeSchema.parse(row.payload);
   if (workflowInputHash(payload) !== row.payloadHash || payload.operationId !== row.operationId || payload.eventId !== row.eventId) {
     throw new Error(WORKFLOW_ERROR.RESULT_INVALID);
   }
