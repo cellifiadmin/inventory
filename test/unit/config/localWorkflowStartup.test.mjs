@@ -65,7 +65,7 @@ test('the test resource namespace selects its artifact while Serverless uses dir
   const stages = result.argv.flatMap((argument, index) => argument === '--stage' ? [result.argv[index + 1]] : []);
   assert.deepEqual(stages, ['test', 'local']);
   const localRuntime = readFileSync(path.join(repoRoot, 'serverless.runtime.local.yml'), 'utf8');
-  assert.match(localRuntime, /DATABASE_URL:.*\$\{env:/);
+  assert.match(localRuntime, /^DATABASE_URL: \$\{env:INVENTORY_DATABASE_URL\}$/m);
   assert.doesNotMatch(localRuntime, /\$\{ssm:/);
 });
 

@@ -294,6 +294,14 @@ requires the access rollout gate. The isolated native permission fixture proved
 the application login is granted read/insert movement access but cannot update, delete,
 truncate or read Prisma migration history.
 
+For the local database, apply all Inventory migrations with `inventory_user` first,
+then use `infrastructure/local/inventory-database-access` with a password sourced
+from the ignored `infrastructure/environments/local.secrets.env` copy of the
+canonical secrets template. Put the same credential in the ignored
+`.env.database.local` file. `serverless.runtime.local.yml` resolves its Lambda
+`DATABASE_URL` only from the guard-validated `INVENTORY_DATABASE_URL`; it must
+never resolve the migration-owner URL in `.env.local`.
+
 `INVENTORY_APPLY_CANCELLATION` uses the same original-sale scope and cumulative
 restoration check as returns. It requires Fulfillment queue authority and the
 canonical `cancellation:{cancellationId}:restore:v1` operation identity. The command,
